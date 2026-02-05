@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Dashboard - YouTube Transcriber Pro</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <style>
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .dashboard-header h1 {
+            font-size: 1.5rem;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            backdrop-filter: blur(20px);
+        }
+
+        .stat-card h3 {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent-primary);
+        }
+
+        .stat-card .subtitle {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .model-breakdown {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .model-tag {
+            background: var(--bg-secondary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .model-tag .count {
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        .logs-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-xl);
+            overflow: hidden;
+        }
+
+        .logs-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logs-header h2 {
+            font-size: 1.125rem;
+        }
+
+        .logs-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .logs-table th,
+        .logs-table td {
+            padding: 1rem 1.5rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .logs-table th {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            background: var(--bg-secondary);
+        }
+
+        .logs-table td {
+            font-size: 0.875rem;
+        }
+
+        .logs-table tr:hover td {
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .status-badge.success {
+            background: rgba(34, 197, 94, 0.2);
+            color: var(--success);
+        }
+
+        .status-badge.failed {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--error);
+        }
+
+        .provider-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .provider-badge.openai {
+            background: rgba(16, 163, 127, 0.2);
+            color: #10a37f;
+        }
+
+        .provider-badge.gemini {
+            background: rgba(66, 133, 244, 0.2);
+            color: #4285f4;
+        }
+
+        .provider-badge.assemblyai {
+            background: rgba(255, 87, 51, 0.2);
+            color: #ff5733;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-secondary);
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .refresh-btn {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 0.5rem 1rem;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: var(--transition);
+        }
+
+        .refresh-btn:hover {
+            border-color: var(--accent-primary);
+        }
+
+        .back-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .back-link:hover {
+            color: var(--accent-primary);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="bg-gradient"></div>
+    <div class="bg-gradient-2"></div>
+
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <div>
+                <a href="/" class="back-link">
+                    ← 返回主頁
+                </a>
+                <h1>📊 API Dashboard</h1>
+            </div>
+            <button class="refresh-btn" onclick="loadData()">🔄 重新整理</button>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>總調用次數</h3>
+                <div class="value" id="totalCalls">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>成功率</h3>
+                <div class="value" id="successRate">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>平均 Duration</h3>
+                <div class="value" id="avgDuration">-</div>
+                <div class="subtitle">毫秒</div>
+            </div>
+            <div class="stat-card">
+                <h3>Model 使用分布</h3>
+                <div class="model-breakdown" id="modelBreakdown">-</div>
+            </div>
+        </div>
+
+        <!-- Logs Table -->
+        <div class="logs-section">
+            <div class="logs-header">
+                <h2>API 調用記錄</h2>
+            </div>
+            <div id="logsContainer">
+                <div class="empty-state">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path
+                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                    <p>載入中...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadData() {
+            try {
+                const response = await fetch('/api/logs');
+                const data = await response.json();
+
+                // Update stats
+                document.getElementById('totalCalls').textContent = data.stats.totalCalls || 0;
+
+                const successRate = data.stats.totalCalls > 0
+                    ? Math.round((data.stats.successCount / data.stats.totalCalls) * 100)
+                    : 0;
+                document.getElementById('successRate').textContent = `${successRate}%`;
+
+                document.getElementById('avgDuration').textContent = data.stats.avgDuration || 0;
+
+                // Model breakdown
+                const modelBreakdown = document.getElementById('modelBreakdown');
+                if (Object.keys(data.stats.byModel).length > 0) {
+                    modelBreakdown.innerHTML = Object.entries(data.stats.byModel)
+                        .map(([model, info]) => `
+                            <span class="model-tag">
+                                ${model} <span class="count">${info.count}</span>
+                            </span>
+                        `).join('');
+                } else {
+                    modelBreakdown.textContent = '尚無資料';
+                }
+
+                // Logs table
+                const logsContainer = document.getElementById('logsContainer');
+                if (data.logs.length === 0) {
+                    logsContainer.innerHTML = `
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                            <p>尚無 API 調用記錄</p>
+                            <p style="font-size: 0.75rem; margin-top: 0.5rem;">轉錄影片後，這裡會顯示所有 API 調用記錄</p>
+                        </div>
+                    `;
+                } else {
+                    logsContainer.innerHTML = `
+                        <table class="logs-table">
+                            <thead>
+                                <tr>
+                                    <th>時間</th>
+                                    <th>Provider</th>
+                                    <th>Model</th>
+                                    <th>Action</th>
+                                    <th>Duration</th>
+                                    <th>狀態</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.logs.map(log => `
+                                    <tr>
+                                        <td>${new Date(log.timestamp).toLocaleString('zh-TW')}</td>
+                                        <td>
+                                            <span class="provider-badge ${log.provider}">
+                                                ${log.provider}
+                                            </span>
+                                        </td>
+                                        <td>${log.model}</td>
+                                        <td>${log.action}</td>
+                                        <td>${log.duration}ms</td>
+                                        <td>
+                                            <span class="status-badge ${log.success ? 'success' : 'failed'}">
+                                                ${log.success ? '成功' : '失敗'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                }
+
+            } catch (error) {
+                console.error('Failed to load data:', error);
+                document.getElementById('logsContainer').innerHTML = `
+                    <div class="empty-state">
+                        <p>載入失敗</p>
+                        <p style="font-size: 0.75rem; margin-top: 0.5rem;">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Load on page load
+        loadData();
+
+        // Auto refresh every 30 seconds
+        setInterval(loadData, 30000);
+    </script>
+</body>
+
+</html>

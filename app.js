@@ -16,7 +16,9 @@ const state = {
     currentStep: 0,
     startTime: null,
     isProcessing: false,
-    abortController: null
+    abortController: null,
+    // Change history for AI refinements
+    changeHistory: []
 };
 
 // Speaker colors
@@ -57,7 +59,13 @@ const elements = {
     overallProgressBar: document.getElementById('overallProgressBar'),
     progressPercent: document.getElementById('progressPercent'),
     progressTime: document.getElementById('progressTime'),
-    cancelBtn: document.getElementById('cancelBtn')
+    cancelBtn: document.getElementById('cancelBtn'),
+    // AI Refinement elements
+    refinePrompt: document.getElementById('refinePrompt'),
+    refineContext: document.getElementById('refineContext'),
+    refineBtn: document.getElementById('refineBtn'),
+    changeHistory: document.getElementById('changeHistory'),
+    changeHistoryList: document.getElementById('changeHistoryList')
 };
 
 // ===== Initialize =====
@@ -134,6 +142,11 @@ function setupEventListeners() {
 
     // Cancel button
     elements.cancelBtn.addEventListener('click', cancelProcessing);
+
+    // AI Refinement button
+    if (elements.refineBtn) {
+        elements.refineBtn.addEventListener('click', refineWithAI);
+    }
 }
 
 function closeModal() {
@@ -499,6 +512,117 @@ async function performCorrection() {
         ...segment,
         text: segment.text // In production, this would be the corrected text
     }));
+}
+
+// ===== AI Refinement with Custom Prompt =====
+async function refineWithAI() {
+    const prompt = elements.refinePrompt?.value?.trim();
+    const context = elements.refineContext?.value?.trim();
+
+    if (!prompt) {
+        showError('請輸入你的指令');
+        return;
+    }
+
+    if (state.transcript.length === 0) {
+        showError('沒有可微調的逐字稿');
+        return;
+    }
+
+    // Get the API key based on correction provider
+    const provider = state.settings.correctionProvider;
+    let apiKey = '';
+
+    if (provider === 'gemini') {
+        apiKey = state.settings.geminiCorrectionKey || state.settings.geminiKey;
+    } else if (provider === 'openai') {
+        apiKey = state.settings.openaiKey;
+    }
+
+    if (!apiKey) {
+        showError(`請先設定 ${provider === 'gemini' ? 'Gemini' : 'OpenAI'} API Key`);
+        return;
+    }
+
+    // Disable button and show loading state
+    const btn = elements.refineBtn;
+    btn.disabled = true;
+    btn.classList.add('loading');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<span>處理中...</span>';
+
+    try {
+        const response = await fetch(`${API_BASE}/api/refine`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                transcript: state.transcript,
+                prompt,
+                context,
+                provider,
+                apiKey
+            })
+        });
+
+        const result = await response.json();
+
+        if (!result.success) {
+            throw new Error(result.error || 'AI 微調失敗');
+        }
+
+        // Save to change history
+        const historyEntry = {
+            timestamp: new Date().toLocaleString('zh-TW'),
+            prompt,
+            changes: result.changes,
+            previousTranscript: [...state.transcript]
+        };
+        state.changeHistory.unshift(historyEntry);
+
+        // Update transcript
+        state.transcript = result.transcript;
+        state.speakers = [...new Set(state.transcript.map(s => s.speaker))];
+
+        // Re-render
+        renderEditor();
+        renderChangeHistory();
+
+        // Clear prompt
+        elements.refinePrompt.value = '';
+
+    } catch (error) {
+        console.error('Refine error:', error);
+        showError(error.message);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.innerHTML = originalText;
+    }
+}
+
+// ===== Change History Rendering =====
+function renderChangeHistory() {
+    if (!elements.changeHistory || !elements.changeHistoryList) return;
+
+    if (state.changeHistory.length === 0) {
+        elements.changeHistory.style.display = 'none';
+        return;
+    }
+
+    elements.changeHistory.style.display = 'block';
+    elements.changeHistoryList.innerHTML = state.changeHistory.map((entry, idx) => `
+        <div class="change-history-item">
+            <span class="time">${entry.timestamp}</span>
+            <div class="prompt">${escapeHtml(entry.prompt)}</div>
+            <div class="changes">${escapeHtml(entry.changes)}</div>
+        </div>
+    `).join('');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // ===== Editor Rendering =====

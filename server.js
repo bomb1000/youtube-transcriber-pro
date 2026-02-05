@@ -5,6 +5,7 @@ const fs = require('fs-extra');
 const { spawn } = require('child_process');
 const OpenAI = require('openai');
 const axios = require('axios');
+const apiLogger = require('./api-logger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -60,12 +61,21 @@ app.post('/api/download', async (req, res) => {
 
         console.log(`Downloading audio for video: ${videoId} using yt-dlp`);
 
-        // Use yt-dlp to download audio
-        const wingetLinks = process.env.LOCALAPPDATA
-            ? path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links')
-            : '';
-        const ytdlpPath = wingetLinks ? path.join(wingetLinks, 'yt-dlp.exe') : 'yt-dlp';
-        const ffmpegPath = wingetLinks ? wingetLinks : '';
+        // Cross-platform yt-dlp path detection
+        const isWindows = process.platform === 'win32';
+        let ytdlpPath = 'yt-dlp'; // Default: assume it's in PATH (Linux/Railway)
+        let ffmpegPath = '';
+
+        if (isWindows) {
+            // Windows: try WinGet Links path first
+            const wingetLinks = process.env.LOCALAPPDATA
+                ? path.join(process.env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links')
+                : '';
+            if (wingetLinks && fs.existsSync(path.join(wingetLinks, 'yt-dlp.exe'))) {
+                ytdlpPath = path.join(wingetLinks, 'yt-dlp.exe');
+                ffmpegPath = wingetLinks;
+            }
+        }
 
         const ytdlpArgs = [
             '-x',                           // Extract audio only
@@ -76,7 +86,7 @@ app.post('/api/download', async (req, res) => {
             '--no-warnings',                // Suppress warnings
         ];
 
-        // Add ffmpeg location if available
+        // Add ffmpeg location if available (Windows)
         if (ffmpegPath) {
             ytdlpArgs.push('--ffmpeg-location', ffmpegPath);
         }
@@ -573,6 +583,103 @@ ${JSON.stringify(transcript, null, 2)}
         console.error('Correction error:', error);
         res.status(500).json({ error: error.message });
     }
+});
+
+// AI Refine with Custom Prompt
+app.post('/api/refine', async (req, res) => {
+    const { transcript, prompt, provider, apiKey, context } = req.body;
+
+    if (!transcript || !apiKey || !prompt) {
+        return res.status(400).json({ error: 'Missing transcript, prompt, or apiKey' });
+    }
+
+    const startTime = Date.now();
+    let model = '';
+
+    try {
+        const systemPrompt = `你是一位專業的逐字稿編輯助手。請根據用戶的指示修改以下逐字稿。
+
+${context ? `影片相關背景：${context}\n\n` : ''}用戶指示：${prompt}
+
+逐字稿：
+${JSON.stringify(transcript, null, 2)}
+
+請按照相同的 JSON 格式回覆修改後的逐字稿，並在最後附上一個 "changes" 欄位說明你做了哪些修改。
+格式：
+{
+  "transcript": [...修改後的逐字稿...],
+  "changes": "1. 修改項目一\n2. 修改項目二..."
+}
+只回覆 JSON，不要其他文字。`;
+
+        let result;
+
+        if (provider === 'openai') {
+            model = 'gpt-4o';
+            const openai = new OpenAI({ apiKey });
+            const completion = await openai.chat.completions.create({
+                model: model,
+                messages: [{ role: 'user', content: systemPrompt }],
+                temperature: 0.3
+            });
+
+            const response = completion.choices[0].message.content;
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            result = JSON.parse(jsonMatch[0]);
+
+        } else if (provider === 'gemini') {
+            model = 'gemini-2.0-flash';
+            const response = await axios.post(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+                {
+                    contents: [{ parts: [{ text: systemPrompt }] }]
+                }
+            );
+
+            const textContent = response.data.candidates[0].content.parts[0].text;
+            const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+            result = JSON.parse(jsonMatch[0]);
+        }
+
+        const duration = Date.now() - startTime;
+
+        // Log the API call
+        apiLogger.log({
+            provider,
+            model,
+            action: 'refine',
+            duration,
+            success: true
+        });
+
+        res.json({
+            success: true,
+            transcript: result.transcript,
+            changes: result.changes || '無具體修改說明'
+        });
+
+    } catch (error) {
+        const duration = Date.now() - startTime;
+        apiLogger.log({
+            provider,
+            model,
+            action: 'refine',
+            duration,
+            success: false,
+            error: error.message
+        });
+
+        console.error('Refine error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get API Logs
+app.get('/api/logs', (req, res) => {
+    res.json({
+        logs: apiLogger.getLogs(),
+        stats: apiLogger.getStats()
+    });
 });
 
 // ===== Helper Functions =====

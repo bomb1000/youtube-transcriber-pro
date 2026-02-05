@@ -749,3 +749,130 @@ body {
         flex: 1;
     }
 }
+
+/* ===== AI Refinement Panel ===== */
+.ai-refine-section {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.ai-refine-section h3 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+}
+
+.refine-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.refine-input {
+    min-height: 100px;
+    resize: vertical;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.context-details {
+    background: var(--bg-card);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+}
+
+.context-details summary {
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.context-details summary:hover {
+    color: var(--accent-primary);
+}
+
+.refine-context-input {
+    margin-top: 0.75rem;
+    min-height: 60px;
+    font-size: 0.8rem;
+}
+
+.refine-btn {
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+}
+
+.refine-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* ===== Change History ===== */
+.change-history {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.change-history h4 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+}
+
+.change-history-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.change-history-item {
+    background: var(--bg-card);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.75rem;
+    border-left: 3px solid var(--accent-primary);
+}
+
+.change-history-item .time {
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.change-history-item .prompt {
+    color: var(--accent-primary);
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    word-break: break-word;
+}
+
+.change-history-item .changes {
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    line-height: 1.4;
+}
+
+/* ===== Refine Loading State ===== */
+.refine-btn.loading {
+    position: relative;
+    color: transparent;
+}
+
+.refine-btn.loading::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}

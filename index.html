@@ -260,6 +260,32 @@
                         <div class="editor-sidebar">
                             <h3>講者列表</h3>
                             <div id="speakerList" class="speaker-list"></div>
+
+                            <!-- AI Refinement Panel -->
+                            <div class="ai-refine-section">
+                                <h3>🤖 AI 微調</h3>
+                                <div class="refine-form">
+                                    <textarea id="refinePrompt" class="input refine-input" 
+                                        placeholder="輸入你的指令，例如：&#10;• 把所有英文專有名詞保留原文&#10;• 修正技術術語&#10;• 把「講者 A」改成「主持人」"></textarea>
+                                    <details class="context-details">
+                                        <summary>新增影片背景（選填）</summary>
+                                        <textarea id="refineContext" class="input refine-context-input"
+                                            placeholder="例如：這是一個討論 AI 技術的 Podcast，主持人是 XX，來賓是 YY..."></textarea>
+                                    </details>
+                                    <button class="btn btn-primary refine-btn" id="refineBtn">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                            <path d="M11.251.068a.5.5 0 0 1 .227.58L9.677 6.5H13a.5.5 0 0 1 .364.843l-8 8.5a.5.5 0 0 1-.842-.49L6.323 9.5H3a.5.5 0 0 1-.364-.843l8-8.5a.5.5 0 0 1 .615-.09z"/>
+                                        </svg>
+                                        執行 AI 微調
+                                    </button>
+                                </div>
+
+                                <!-- Change History -->
+                                <div id="changeHistory" class="change-history" style="display: none;">
+                                    <h4>📝 修改記錄</h4>
+                                    <div id="changeHistoryList" class="change-history-list"></div>
+                                </div>
+                            </div>
                         </div>
                         <div class="editor-main">
                             <div id="transcriptEditor" class="transcript-editor"></div>

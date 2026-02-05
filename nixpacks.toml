@@ -1,0 +1,14 @@
+# Nixpacks configuration for Railway deployment
+# This installs system dependencies required for yt-dlp and ffmpeg
+
+[phases.setup]
+aptPkgs = ["ffmpeg", "python3-pip", "python3-full"]
+
+[phases.install]
+cmds = [
+    "npm install",
+    "pip3 install --break-system-packages yt-dlp"
+]
+
+[start]
+cmd = "node server.js"
