@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Transcriber Pro - AI 智能逐字稿生成器</title>
+    <meta name="description" content="使用 AI 技術自動生成 YouTube 影片逐字稿，支援講者識別與智能修正">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <!-- Background Effects -->
+    <div class="bg-gradient"></div>
+    <div class="bg-gradient-2"></div>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                    <rect width="40" height="40" rx="12" fill="url(#gradient)" />
+                    <path d="M12 13L20 20L12 27V13Z" fill="white" />
+                    <path d="M20 13L28 20L20 27V13Z" fill="white" opacity="0.6" />
+                    <defs>
+                        <linearGradient id="gradient" x1="0" y1="0" x2="40" y2="40">
+                            <stop stop-color="#6366F1" />
+                            <stop offset="1" stop-color="#8B5CF6" />
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <h1>YouTube Transcriber Pro</h1>
+            </div>
+            <button class="settings-btn" id="settingsBtn">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <circle cx="12" cy="12" r="3" />
+                    <path
+                        d="M12 1v6m0 6v6m8.66-15.66l-4.24 4.24m-4.24 4.24l-4.24 4.24M23 12h-6m-6 0H1m15.66 8.66l-4.24-4.24m-4.24-4.24l-4.24-4.24" />
+                </svg>
+            </button>
+        </header>
+
+        <!-- Settings Modal -->
+        <div class="modal" id="settingsModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>API 設定</h2>
+                    <button class="close-btn" id="closeSettings">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>選擇 STT 服務</label>
+                        <select id="sttProvider" class="input">
+                            <option value="openai">OpenAI GPT-4o Mini (推薦 - 最便宜)</option>
+                            <option value="gemini">Google Gemini</option>
+                            <option value="assemblyai">AssemblyAI</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="openaiKeyGroup">
+                        <label>OpenAI API Key</label>
+                        <input type="password" id="openaiKey" class="input" placeholder="sk-...">
+                        <small>用於語音轉文字和智能修正</small>
+                    </div>
+
+                    <div class="form-group" id="geminiKeyGroup" style="display: none;">
+                        <label>Gemini API Key</label>
+                        <input type="password" id="geminiKey" class="input" placeholder="AI...">
+                        <small>用於語音轉文字</small>
+                    </div>
+
+                    <div class="form-group" id="assemblyKeyGroup" style="display: none;">
+                        <label>AssemblyAI API Key</label>
+                        <input type="password" id="assemblyKey" class="input" placeholder="...">
+                        <small>用於語音轉文字（支援無限講者）</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>AI 修正服務</label>
+                        <select id="correctionProvider" class="input">
+                            <option value="gemini">Google Gemini (推薦 - 免費額度高)</option>
+                            <option value="openai">OpenAI GPT-4</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="geminiCorrectionKeyGroup">
+                        <label>Gemini API Key (修正用)</label>
+                        <input type="password" id="geminiCorrectionKey" class="input" placeholder="AI...">
+                        <small>用於智能修正逐字稿</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="enableCorrection" checked>
+                            <span>啟用 AI 智能修正</span>
+                        </label>
+                        <small>自動修正錯別字、標點符號和語句流暢度</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="saveSettings">儲存設定</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Step 1: Input -->
+            <section class="card" id="inputSection">
+                <div class="card-header">
+                    <div class="step-badge">步驟 1</div>
+                    <h2>輸入 YouTube 連結</h2>
+                </div>
+                <div class="card-body">
+                    <div class="input-group">
+                        <input type="text" id="youtubeUrl" class="input input-large"
+                            placeholder="貼上 YouTube 影片連結（包括非公開連結）...">
+                        <button class="btn btn-primary" id="startBtn">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M6 4l10 6-10 6V4z" />
+                            </svg>
+                            開始轉錄
+                        </button>
+                    </div>
+                    <div class="features-grid">
+                        <div class="feature-item">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M9 12l2 2 4-4" />
+                                <circle cx="12" cy="12" r="10" />
+                            </svg>
+                            <span>支援非公開影片</span>
+                        </div>
+                        <div class="feature-item">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                <circle cx="9" cy="7" r="4" />
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                            </svg>
+                            <span>自動識別講者</span>
+                        </div>
+                        <div class="feature-item">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                                <path d="M2 17l10 5 10-5" />
+                                <path d="M2 12l10 5 10-5" />
+                            </svg>
+                            <span>AI 智能修正</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 2: Progress -->
+            <section class="card" id="progressSection" style="display: none;">
+                <div class="card-header">
+                    <div class="step-badge">處理中</div>
+                    <h2>正在處理您的影片</h2>
+                </div>
+                <div class="card-body">
+                    <!-- Overall Progress Bar -->
+                    <div class="overall-progress">
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="overallProgressBar" style="width: 0%"></div>
+                        </div>
+                        <div class="progress-stats">
+                            <span id="progressPercent">0%</span>
+                            <span id="progressTime">預估時間：計算中...</span>
+                        </div>
+                    </div>
+
+                    <div class="progress-container">
+                        <div class="progress-step" id="step1">
+                            <div class="progress-icon">
+                                <div class="spinner"></div>
+                                <div class="check-icon">✓</div>
+                            </div>
+                            <div class="progress-info">
+                                <h3>下載音訊</h3>
+                                <p id="step1Status">準備中...</p>
+                                <div class="step-progress-bar" id="step1Bar" style="display: none;">
+                                    <div class="step-progress-fill" id="step1Fill"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="progress-line"></div>
+                        <div class="progress-step" id="step2">
+                            <div class="progress-icon">
+                                <div class="spinner"></div>
+                                <div class="check-icon">✓</div>
+                            </div>
+                            <div class="progress-info">
+                                <h3>語音轉文字</h3>
+                                <p id="step2Status">等待中...</p>
+                                <div class="step-progress-bar" id="step2Bar" style="display: none;">
+                                    <div class="step-progress-fill" id="step2Fill"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="progress-line"></div>
+                        <div class="progress-step" id="step3">
+                            <div class="progress-icon">
+                                <div class="spinner"></div>
+                                <div class="check-icon">✓</div>
+                            </div>
+                            <div class="progress-info">
+                                <h3>AI 智能修正</h3>
+                                <p id="step3Status">等待中...</p>
+                            </div>
+                        </div>
+                        <div class="progress-line"></div>
+                        <div class="progress-step" id="step4">
+                            <div class="progress-icon">
+                                <div class="spinner"></div>
+                                <div class="check-icon">✓</div>
+                            </div>
+                            <div class="progress-info">
+                                <h3>生成 SRT</h3>
+                                <p id="step4Status">等待中...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cancel Button -->
+                    <div class="progress-actions">
+                        <button class="btn btn-secondary" id="cancelBtn">取消</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 3: Editor -->
+            <section class="card" id="editorSection" style="display: none;">
+                <div class="card-header">
+                    <div class="step-badge">步驟 3</div>
+                    <h2>編輯逐字稿</h2>
+                    <div class="card-actions">
+                        <button class="btn btn-secondary" id="downloadSrtBtn">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M10 12l-5-5h3V3h4v4h3l-5 5z" />
+                                <path d="M3 17h14v-2H3v2z" />
+                            </svg>
+                            下載 SRT
+                        </button>
+                        <button class="btn btn-secondary" id="downloadTxtBtn">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M10 12l-5-5h3V3h4v4h3l-5 5z" />
+                                <path d="M3 17h14v-2H3v2z" />
+                            </svg>
+                            下載 TXT
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="editor-container">
+                        <div class="editor-sidebar">
+                            <h3>講者列表</h3>
+                            <div id="speakerList" class="speaker-list"></div>
+                        </div>
+                        <div class="editor-main">
+                            <div id="transcriptEditor" class="transcript-editor"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Error Modal (可複製的錯誤訊息) -->
+        <div class="modal" id="errorModal">
+            <div class="modal-content error-modal-content">
+                <div class="modal-header error-header">
+                    <h2>❌ 處理過程中發生錯誤</h2>
+                    <button class="close-btn" id="closeError">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="error-message-container">
+                        <pre id="errorMessage" class="error-message"></pre>
+                    </div>
+                    <div class="error-actions">
+                        <button class="btn btn-secondary" id="copyErrorBtn">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M4 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V2z" />
+                                <path d="M2 6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-2h-2v2H2V8h2V6H2z" />
+                            </svg>
+                            複製錯誤訊息
+                        </button>
+                        <button class="btn btn-primary" id="retryBtn">重新嘗試</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>使用 AI 技術驅動 · 支援多種 STT 服務 · 開源專案</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
