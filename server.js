@@ -6,9 +6,17 @@ const { spawn } = require('child_process');
 const OpenAI = require('openai');
 const axios = require('axios');
 const apiLogger = require('./api-logger');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Default API Keys from environment variables
+const DEFAULT_API_KEYS = {
+    gemini: process.env.GEMINI_API_KEY || '',
+    openai: process.env.OPENAI_API_KEY || '',
+    assemblyai: process.env.ASSEMBLYAI_API_KEY || ''
+};
 
 // Middleware
 app.use(cors());
@@ -18,6 +26,17 @@ app.use(express.static(path.join(__dirname)));
 // Ensure temp directory exists
 const TEMP_DIR = path.join(__dirname, 'temp');
 fs.ensureDirSync(TEMP_DIR);
+
+// ===== API to get default keys status =====
+app.get('/api/config', (req, res) => {
+    res.json({
+        hasDefaultKeys: {
+            gemini: !!DEFAULT_API_KEYS.gemini,
+            openai: !!DEFAULT_API_KEYS.openai,
+            assemblyai: !!DEFAULT_API_KEYS.assemblyai
+        }
+    });
+});
 
 // ===== Routes =====
 
@@ -153,10 +172,14 @@ app.post('/api/download', async (req, res) => {
 
 // Transcribe audio with OpenAI
 app.post('/api/transcribe/openai', async (req, res) => {
-    const { videoId, apiKey } = req.body;
+    const { videoId, apiKey: userApiKey } = req.body;
+    const apiKey = userApiKey || DEFAULT_API_KEYS.openai;
 
-    if (!videoId || !apiKey) {
-        return res.status(400).json({ error: 'Missing videoId or apiKey' });
+    if (!videoId) {
+        return res.status(400).json({ error: 'Missing videoId' });
+    }
+    if (!apiKey) {
+        return res.status(400).json({ error: 'Missing apiKey - no default key configured' });
     }
 
     try {
@@ -226,10 +249,14 @@ app.post('/api/transcribe/openai', async (req, res) => {
 
 // Transcribe with AssemblyAI (supports speaker diarization natively)
 app.post('/api/transcribe/assemblyai', async (req, res) => {
-    const { videoId, apiKey } = req.body;
+    const { videoId, apiKey: userApiKey } = req.body;
+    const apiKey = userApiKey || DEFAULT_API_KEYS.assemblyai;
 
-    if (!videoId || !apiKey) {
-        return res.status(400).json({ error: 'Missing videoId or apiKey' });
+    if (!videoId) {
+        return res.status(400).json({ error: 'Missing videoId' });
+    }
+    if (!apiKey) {
+        return res.status(400).json({ error: 'Missing apiKey - no default key configured' });
     }
 
     try {
@@ -318,10 +345,14 @@ app.post('/api/transcribe/assemblyai', async (req, res) => {
 
 // Transcribe with Gemini
 app.post('/api/transcribe/gemini', async (req, res) => {
-    const { videoId, apiKey } = req.body;
+    const { videoId, apiKey: userApiKey } = req.body;
+    const apiKey = userApiKey || DEFAULT_API_KEYS.gemini;
 
-    if (!videoId || !apiKey) {
-        return res.status(400).json({ error: 'Missing videoId or apiKey' });
+    if (!videoId) {
+        return res.status(400).json({ error: 'Missing videoId' });
+    }
+    if (!apiKey) {
+        return res.status(400).json({ error: 'Missing apiKey - no default key configured' });
     }
 
     try {
@@ -529,10 +560,14 @@ app.post('/api/transcribe/gemini', async (req, res) => {
 
 // AI Correction
 app.post('/api/correct', async (req, res) => {
-    const { transcript, provider, apiKey } = req.body;
+    const { transcript, provider, apiKey: userApiKey } = req.body;
+    const apiKey = userApiKey || (provider === 'gemini' ? DEFAULT_API_KEYS.gemini : DEFAULT_API_KEYS.openai);
 
-    if (!transcript || !apiKey) {
-        return res.status(400).json({ error: 'Missing transcript or apiKey' });
+    if (!transcript) {
+        return res.status(400).json({ error: 'Missing transcript' });
+    }
+    if (!apiKey) {
+        return res.status(400).json({ error: 'Missing apiKey - no default key configured' });
     }
 
     try {
@@ -587,10 +622,14 @@ ${JSON.stringify(transcript, null, 2)}
 
 // AI Refine with Custom Prompt
 app.post('/api/refine', async (req, res) => {
-    const { transcript, prompt, provider, apiKey, context } = req.body;
+    const { transcript, prompt, provider, apiKey: userApiKey, context } = req.body;
+    const apiKey = userApiKey || (provider === 'gemini' ? DEFAULT_API_KEYS.gemini : DEFAULT_API_KEYS.openai);
 
-    if (!transcript || !apiKey || !prompt) {
-        return res.status(400).json({ error: 'Missing transcript, prompt, or apiKey' });
+    if (!transcript || !prompt) {
+        return res.status(400).json({ error: 'Missing transcript or prompt' });
+    }
+    if (!apiKey) {
+        return res.status(400).json({ error: 'Missing apiKey - no default key configured' });
     }
 
     const startTime = Date.now();

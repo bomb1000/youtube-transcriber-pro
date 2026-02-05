@@ -69,10 +69,33 @@ const elements = {
 };
 
 // ===== Initialize =====
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     loadSettings();
     setupEventListeners();
+    await checkServerDefaultKeys();
 });
+
+// Check if server has default API keys configured
+async function checkServerDefaultKeys() {
+    try {
+        const response = await fetch(`${API_BASE}/api/config`);
+        const config = await response.json();
+        state.serverDefaultKeys = config.hasDefaultKeys;
+
+        // If server has Gemini key and user hasn't set any keys, auto-select Gemini
+        if (config.hasDefaultKeys.gemini && !state.settings.openaiKey && !state.settings.geminiKey) {
+            state.settings.sttProvider = 'gemini';
+            state.settings.correctionProvider = 'gemini';
+            elements.sttProvider.value = 'gemini';
+            elements.correctionProvider.value = 'gemini';
+            updateProviderVisibility();
+            console.log('Using server default Gemini API key');
+        }
+    } catch (error) {
+        console.log('Could not check server config:', error.message);
+        state.serverDefaultKeys = { gemini: false, openai: false, assemblyai: false };
+    }
+}
 
 function loadSettings() {
     const saved = localStorage.getItem('transcriber_settings');
@@ -208,17 +231,19 @@ async function startTranscription() {
         return;
     }
 
-    // Check API keys
+    // Check API keys (skip if server has default keys)
     const provider = state.settings.sttProvider;
-    if (provider === 'openai' && !state.settings.openaiKey) {
+    const hasServerKey = state.serverDefaultKeys?.[provider];
+
+    if (provider === 'openai' && !state.settings.openaiKey && !hasServerKey) {
         showError('請先設定 OpenAI API Key\n\n點擊右上角的 ⚙️ 按鈕來設定 API Key');
         return;
     }
-    if (provider === 'gemini' && !state.settings.geminiKey) {
+    if (provider === 'gemini' && !state.settings.geminiKey && !hasServerKey) {
         showError('請先設定 Gemini API Key\n\n點擊右上角的 ⚙️ 按鈕來設定 API Key');
         return;
     }
-    if (provider === 'assemblyai' && !state.settings.assemblyKey) {
+    if (provider === 'assemblyai' && !state.settings.assemblyKey && !hasServerKey) {
         showError('請先設定 AssemblyAI API Key\n\n點擊右上角的 ⚙️ 按鈕來設定 API Key');
         return;
     }
