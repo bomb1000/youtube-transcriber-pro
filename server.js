@@ -40,13 +40,40 @@ app.get('/api/config', (req, res) => {
 });
 
 // ===== Helper Functions =====
-async function resolveYtdlpCookiesArgs() {
+async function resolveYtdlpCookiesArgs(options = {}) {
+    const cleanup = async () => {};
     const envFromBrowser = process.env.YTDLP_COOKIES_FROM_BROWSER || '';
     const envPath = process.env.YTDLP_COOKIES_PATH || process.env.YTDLP_COOKIES || '';
     const envBase64 = process.env.YTDLP_COOKIES_BASE64 || process.env.YTDLP_COOKIES_B64 || '';
+    const cookiesFromBrowser = options.cookiesFromBrowser || '';
+    const cookiesText = options.cookiesText || '';
+    const cookiesBase64 = options.cookiesBase64 || '';
+
+    if (cookiesFromBrowser) {
+        return { args: ['--cookies-from-browser', cookiesFromBrowser], cleanup };
+    }
+
+    if (cookiesText) {
+        const cookiesPath = path.join(TEMP_DIR, `yt-dlp-cookies-${Date.now()}.txt`);
+        await fs.outputFile(cookiesPath, cookiesText);
+        return { args: ['--cookies', cookiesPath], cleanup: () => fs.remove(cookiesPath).catch(() => {}) };
+    }
+
+    if (cookiesBase64) {
+        try {
+            const decoded = Buffer.from(cookiesBase64, 'base64').toString('utf8');
+            if (decoded.trim()) {
+                const cookiesPath = path.join(TEMP_DIR, `yt-dlp-cookies-${Date.now()}.txt`);
+                await fs.outputFile(cookiesPath, decoded);
+                return { args: ['--cookies', cookiesPath], cleanup: () => fs.remove(cookiesPath).catch(() => {}) };
+            }
+        } catch (error) {
+            console.warn('Failed to decode cookiesBase64:', error.message);
+        }
+    }
 
     if (envFromBrowser) {
-        return ['--cookies-from-browser', envFromBrowser];
+        return { args: ['--cookies-from-browser', envFromBrowser], cleanup };
     }
 
     if (envBase64) {
@@ -55,7 +82,7 @@ async function resolveYtdlpCookiesArgs() {
             if (decoded.trim()) {
                 const cookiesPath = path.join(TEMP_DIR, 'yt-dlp-cookies.txt');
                 await fs.outputFile(cookiesPath, decoded);
-                return ['--cookies', cookiesPath];
+                return { args: ['--cookies', cookiesPath], cleanup };
             }
         } catch (error) {
             console.warn('Failed to decode YTDLP_COOKIES_BASE64:', error.message);
@@ -64,12 +91,12 @@ async function resolveYtdlpCookiesArgs() {
 
     if (envPath) {
         if (await fs.pathExists(envPath)) {
-            return ['--cookies', envPath];
+            return { args: ['--cookies', envPath], cleanup };
         }
         console.warn(`YTDLP_COOKIES_PATH does not exist: ${envPath}`);
     }
 
-    return [];
+    return { args: [], cleanup };
 }
 
 // Clean up common JSON issues from AI responses
@@ -268,7 +295,7 @@ app.post('/api/convert', (req, res) => {
 
 // Download audio from YouTube using yt-dlp
 app.post('/api/download', async (req, res) => {
-    const { url } = req.body;
+    const { url, cookiesText, cookiesBase64, cookiesFromBrowser } = req.body;
 
     if (!url) {
         return res.status(400).json({ error: 'Missing YouTube URL' });
@@ -317,7 +344,11 @@ app.post('/api/download', async (req, res) => {
             }
         }
 
-        const cookiesArgs = await resolveYtdlpCookiesArgs();
+        const { args: cookiesArgs, cleanup: cookiesCleanup } = await resolveYtdlpCookiesArgs({
+            cookiesText,
+            cookiesBase64,
+            cookiesFromBrowser
+        });
         const ytdlpArgs = [
             '-x',                           // Extract audio only
             '--audio-format', 'opus',       // Convert to opus (webm container)
@@ -338,32 +369,36 @@ app.post('/api/download', async (req, res) => {
 
         ytdlpArgs.push(url);
 
-        await new Promise((resolve, reject) => {
-            const ytdlp = spawn(ytdlpPath, ytdlpArgs);
+        try {
+            await new Promise((resolve, reject) => {
+                const ytdlp = spawn(ytdlpPath, ytdlpArgs);
 
-            let stderr = '';
+                let stderr = '';
 
-            ytdlp.stdout.on('data', (data) => {
-                console.log(`yt-dlp: ${data}`);
+                ytdlp.stdout.on('data', (data) => {
+                    console.log(`yt-dlp: ${data}`);
+                });
+
+                ytdlp.stderr.on('data', (data) => {
+                    stderr += data.toString();
+                    console.error(`yt-dlp stderr: ${data}`);
+                });
+
+                ytdlp.on('close', (code) => {
+                    if (code === 0) {
+                        resolve();
+                    } else {
+                        reject(new Error(`yt-dlp exited with code ${code}: ${stderr}`));
+                    }
+                });
+
+                ytdlp.on('error', (err) => {
+                    reject(new Error(`Failed to start yt-dlp: ${err.message}`));
+                });
             });
-
-            ytdlp.stderr.on('data', (data) => {
-                stderr += data.toString();
-                console.error(`yt-dlp stderr: ${data}`);
-            });
-
-            ytdlp.on('close', (code) => {
-                if (code === 0) {
-                    resolve();
-                } else {
-                    reject(new Error(`yt-dlp exited with code ${code}: ${stderr}`));
-                }
-            });
-
-            ytdlp.on('error', (err) => {
-                reject(new Error(`Failed to start yt-dlp: ${err.message}`));
-            });
-        });
+        } finally {
+            await cookiesCleanup();
+        }
 
         // Find the downloaded file (might have different extension)
         const files = await fs.readdir(TEMP_DIR);
@@ -394,7 +429,7 @@ app.post('/api/download', async (req, res) => {
         console.error('Download error:', error);
         let message = error.message || 'Unknown error';
         if (message.includes('Sign in to confirm') || message.includes('cookies')) {
-            message += '。請在部署環境設定 YTDLP_COOKIES_PATH、YTDLP_COOKIES_BASE64 或 YTDLP_COOKIES_FROM_BROWSER 以提供 YouTube cookies。';
+            message += '。請在部署環境設定 YTDLP_COOKIES_PATH、YTDLP_COOKIES_BASE64 或 YTDLP_COOKIES_FROM_BROWSER，或在前端貼上 cookies 內容。';
         }
         res.status(500).json({ error: `下載失敗: ${message}` });
     }
