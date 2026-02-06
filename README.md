@@ -1,78 +1,74 @@
 # 🎬 YouTube Transcriber Pro
 
-AI 智能 YouTube 逐字稿生成器，支援多種語音辨識服務和講者識別。
+A professional-grade YouTube video transcription tool that leverages state-of-the-art AI models to convert video to text with high accuracy. Features speaker diarization, AI-powered refinement, and multi-language support.
 
-![Demo](https://img.shields.io/badge/Status-Beta-blue)
-![Node](https://img.shields.io/badge/Node.js-18+-green)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Node](https://img.shields.io/badge/node-%3E%3D18-green.svg)
 
-## ✨ 功能特色
+## ✨ Key Features
 
-- 🎯 **多種 AI 服務支援** - OpenAI、Google Gemini、AssemblyAI
-- 👥 **講者識別** - 自動識別不同講者
-- ✏️ **AI 智能修正** - 自動修正語音辨識錯誤
-- 📝 **可編輯逐字稿** - 即時編輯和修改
-- 💾 **多格式輸出** - SRT 字幕檔、純文字檔
-- 🎨 **現代化 UI** - 深色主題、動態動畫
+- **📺 YouTube Integration**: Seamlessly downloads and processes audio from YouTube links using `yt-dlp`.
+- **🤖 Multi-Model Support**:
+  - **OpenAI Whisper**: Best for stability and standard SRT generation.
+  - **Google Gemini**: Free tier available, supports speaker diarization and long context.
+  - **AssemblyAI**: Professional-grade speaker separation and precise timestamping.
+- **📝 Smart Editor**:
+  - **Speaker Diarization**: Distinct speaker labels with color coding.
+  - **Version History**: Track all changes with ability to restore previous versions.
+  - **Chinese Conversion**: One-click Traditional ↔ Simplified Chinese conversion.
+- **🧠 Advanced AI Refinement**:
+  - **Context-Aware Correction**: Fixes typos and terminology using custom prompts.
+  - **Web Grounding**: (Gemini only) Uses Google Search to verify proper nouns and technical terms.
+  - **Context Overlap**: Smart chunking ensures no context is lost between processing batches for long videos.
 
-## 🚀 快速開始
+## 🚀 Getting Started
 
-### 前置需求
+### Prerequisites
 
-- Node.js 18+
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (透過 winget 安裝: `winget install yt-dlp.yt-dlp`)
-- API Key (至少一個):
-  - [OpenAI API Key](https://platform.openai.com/api-keys)
-  - [Google Gemini API Key](https://aistudio.google.com/apikey)
-  - [AssemblyAI API Key](https://www.assemblyai.com/dashboard/signup)
+- Node.js (v18 or higher)
+- ffmpeg (installed and added to system PATH)
+- API Keys (OpenAI, Google Gemini, or AssemblyAI)
 
-### 安裝
+### Installation
 
-```bash
-# 複製專案
-git clone https://github.com/YOUR_USERNAME/youtube-transcriber-pro.git
-cd youtube-transcriber-pro
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/youtube-transcriber-pro.git
+   cd youtube-transcriber-pro
+   ```
 
-# 安裝依賴
-npm install
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-# 啟動伺服器
-npm start
-```
+3. Start the application:
+   ```bash
+   npm start
+   ```
 
-### 使用
+4. Open your browser and navigate to:
+   `http://localhost:3000`
 
-1. 開啟瀏覽器訪問 `http://localhost:3000`
-2. 點擊 ⚙️ 設定你的 API Key
-3. 貼上 YouTube 連結
-4. 點擊「開始轉錄」
+## 🛠️ Configuration
 
-## 📁 專案結構
+Configure your API keys in the settings menu (⚙️ icon):
 
-```
-youtube-transcriber-pro/
-├── index.html      # 主頁面
-├── styles.css      # 樣式表
-├── app.js          # 前端邏輯
-├── server.js       # Node.js 後端
-├── package.json    # 專案設定
-└── temp/           # 暫存音訊檔案
-```
+- **OpenAI API Key**: For Whisper and GPT-4o models.
+- **Gemini API Key**: For transcription and correction with web search capabilities.
+- **AssemblyAI API Key**: For specialized speaker diarization.
 
-## 🔧 技術架構
+## 💡 How It Works
 
-- **前端**: HTML5, CSS3, Vanilla JavaScript
-- **後端**: Node.js, Express
-- **下載**: yt-dlp
-- **語音辨識**: OpenAI Whisper, Google Gemini, AssemblyAI
+1. **Input**: Paste a YouTube URL.
+2. **Download**: The server downloads the audio using `yt-dlp`.
+3. **Transcribe**: Audio is sent to the selected AI provider.
+4. **Refine**:
+   - Use the built-in AI editor to correct mistakes.
+   - Enable "Web Search" to let AI fact-check terms.
+   - Convert between Traditional/Simplified Chinese if needed.
+5. **Export**: Download as `.srt` (subtitles) or `.txt` (transcript).
 
-## 📝 License
+## 📄 License
 
-MIT License - 自由使用和修改
-
-## 🙏 致謝
-
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - YouTube 下載
-- [OpenAI](https://openai.com) - Whisper 語音辨識
-- [Google Gemini](https://ai.google.dev) - AI 語音轉文字
-- [AssemblyAI](https://www.assemblyai.com) - 語音辨識 API
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

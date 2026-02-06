@@ -56,10 +56,26 @@
                     <div class="form-group">
                         <label>選擇 STT 服務</label>
                         <select id="sttProvider" class="input">
-                            <option value="openai">OpenAI GPT-4o Mini (推薦 - 最便宜)</option>
-                            <option value="gemini">Google Gemini</option>
-                            <option value="assemblyai">AssemblyAI</option>
+                            <option value="openai-whisper">🏆 OpenAI Whisper（穩定 + SRT，無講者分離）</option>
+                            <option value="gemini">⭐ Google Gemini（免費 + 講者分離）</option>
+                            <option value="assemblyai">🎯 AssemblyAI（精準講者分離 + 無限制）</option>
+                            <option value="openai-gpt4o">OpenAI GPT-4o（中英混雜最強，無講者）</option>
+                            <option value="openai-gpt4o-diarize">🧪 GPT-4o Diarize（Beta）</option>
+                            <option value="openai-gpt4o-mini">OpenAI GPT-4o Mini（便宜）</option>
                         </select>
+                        <small id="sttHint" class="stt-hint">
+                            🎯 最適合：穩定轉錄 + SRT 字幕（無講者分離）
+                        </small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>🔄 繁簡轉換</label>
+                        <select id="chineseConversion" class="input">
+                            <option value="none">不轉換（保持原樣）</option>
+                            <option value="s2t">簡體 → 繁體</option>
+                            <option value="t2s">繁體 → 簡體</option>
+                        </select>
+                        <small>轉錄完成後自動轉換字體</small>
                     </div>
 
                     <div class="form-group" id="openaiKeyGroup">
@@ -77,7 +93,7 @@
                     <div class="form-group" id="assemblyKeyGroup" style="display: none;">
                         <label>AssemblyAI API Key</label>
                         <input type="password" id="assemblyKey" class="input" placeholder="...">
-                        <small>用於語音轉文字（支援無限講者）</small>
+                        <small>用於語音轉文字（無檔案限制 + 支援無限講者）</small>
                     </div>
 
                     <div class="form-group">
@@ -239,6 +255,11 @@
                     <div class="step-badge">步驟 3</div>
                     <h2>編輯逐字稿</h2>
                     <div class="card-actions">
+                        <select id="editorChineseConversion" class="input conversion-select" title="繁簡轉換">
+                            <option value="none">🔄 繁簡轉換</option>
+                            <option value="s2t">簡體 → 繁體</option>
+                            <option value="t2s">繁體 → 簡體</option>
+                        </select>
                         <button class="btn btn-secondary" id="downloadSrtBtn">
                             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
                                 <path d="M10 12l-5-5h3V3h4v4h3l-5 5z" />
@@ -258,6 +279,10 @@
                 <div class="card-body">
                     <div class="editor-container">
                         <div class="editor-sidebar">
+                            <div id="transcriptionInfo" class="transcription-info" style="display: none;">
+                                <small>📊 模型: <span id="modelInfo">-</span></small>
+                                <small>🌐 語言: <span id="languageInfo">-</span></small>
+                            </div>
                             <h3>講者列表</h3>
                             <div id="speakerList" class="speaker-list"></div>
 
@@ -265,16 +290,22 @@
                             <div class="ai-refine-section">
                                 <h3>🤖 AI 微調</h3>
                                 <div class="refine-form">
-                                    <textarea id="refinePrompt" class="input refine-input" 
+                                    <textarea id="refinePrompt" class="input refine-input"
                                         placeholder="輸入你的指令，例如：&#10;• 把所有英文專有名詞保留原文&#10;• 修正技術術語&#10;• 把「講者 A」改成「主持人」"></textarea>
                                     <details class="context-details">
-                                        <summary>新增影片背景（選填）</summary>
+                                        <summary>進階選項</summary>
                                         <textarea id="refineContext" class="input refine-context-input"
-                                            placeholder="例如：這是一個討論 AI 技術的 Podcast，主持人是 XX，來賓是 YY..."></textarea>
+                                            placeholder="新增影片背景資料（例如：這是一個討論 AI 的 Podcast...）"></textarea>
+                                        <label class="checkbox-label" style="margin-top: 0.5rem;">
+                                            <input type="checkbox" id="enableWebSearch">
+                                            <span>🌍 啟用網路搜索 (Grounding)</span>
+                                        </label>
+                                        <small class="hint-text">讓 AI 查詢網路最新資料以校正專有名詞（僅 Gemini 可用）</small>
                                     </details>
                                     <button class="btn btn-primary refine-btn" id="refineBtn">
                                         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                                            <path d="M11.251.068a.5.5 0 0 1 .227.58L9.677 6.5H13a.5.5 0 0 1 .364.843l-8 8.5a.5.5 0 0 1-.842-.49L6.323 9.5H3a.5.5 0 0 1-.364-.843l8-8.5a.5.5 0 0 1 .615-.09z"/>
+                                            <path
+                                                d="M11.251.068a.5.5 0 0 1 .227.58L9.677 6.5H13a.5.5 0 0 1 .364.843l-8 8.5a.5.5 0 0 1-.842-.49L6.323 9.5H3a.5.5 0 0 1-.364-.843l8-8.5a.5.5 0 0 1 .615-.09z" />
                                         </svg>
                                         執行 AI 微調
                                     </button>
@@ -282,8 +313,17 @@
 
                                 <!-- Change History -->
                                 <div id="changeHistory" class="change-history" style="display: none;">
-                                    <h4>📝 修改記錄</h4>
-                                    <div id="changeHistoryList" class="change-history-list"></div>
+                                    <div class="history-header">
+                                        <h4>📝 版本歷史</h4>
+                                        <span id="versionCount" class="badge">0</span>
+                                    </div>
+                                    <div id="versionList" class="version-list"></div>
+                                    <div id="versionActions" class="version-actions" style="display: none;">
+                                        <button class="btn btn-sm btn-outline" id="restoreVersionBtn">
+                                            ↩️ 還原此版本
+                                        </button>
+                                    </div>
+                                    <div id="changeDetails" class="change-details"></div>
                                 </div>
                             </div>
                         </div>

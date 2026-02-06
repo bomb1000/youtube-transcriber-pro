@@ -1,13 +1,14 @@
 // ===== Configuration & State =====
 const state = {
     settings: {
-        sttProvider: 'openai',
+        sttProvider: 'openai-whisper',
         openaiKey: '',
         geminiKey: '',
         assemblyKey: '',
         correctionProvider: 'gemini',
         geminiCorrectionKey: '',
-        enableCorrection: true
+        enableCorrection: true,
+        chineseConversion: 'none' // 'none', 's2t', 't2s'
     },
     transcript: [],
     speakers: [],
@@ -40,6 +41,7 @@ const elements = {
     correctionProvider: document.getElementById('correctionProvider'),
     geminiCorrectionKey: document.getElementById('geminiCorrectionKey'),
     enableCorrection: document.getElementById('enableCorrection'),
+    chineseConversion: document.getElementById('chineseConversion'),
     youtubeUrl: document.getElementById('youtubeUrl'),
     startBtn: document.getElementById('startBtn'),
     inputSection: document.getElementById('inputSection'),
@@ -82,8 +84,16 @@ async function checkServerDefaultKeys() {
         const config = await response.json();
         state.serverDefaultKeys = config.hasDefaultKeys;
 
-        // If server has Gemini key and user hasn't set any keys, auto-select Gemini
-        if (config.hasDefaultKeys.gemini && !state.settings.openaiKey && !state.settings.geminiKey) {
+        // If server has OpenAI key, prefer Whisper (most stable with SRT support)
+        if (config.hasDefaultKeys.openai && !state.settings.openaiKey) {
+            state.settings.sttProvider = 'openai-whisper';
+            state.settings.correctionProvider = 'gemini'; // Still use Gemini for correction (free)
+            elements.sttProvider.value = 'openai-whisper';
+            updateProviderVisibility();
+            console.log('Using server default OpenAI API key with Whisper');
+        }
+        // Fallback to Gemini if no OpenAI key
+        else if (config.hasDefaultKeys.gemini && !state.settings.geminiKey) {
             state.settings.sttProvider = 'gemini';
             state.settings.correctionProvider = 'gemini';
             elements.sttProvider.value = 'gemini';
@@ -108,6 +118,9 @@ function loadSettings() {
         elements.correctionProvider.value = state.settings.correctionProvider;
         elements.geminiCorrectionKey.value = state.settings.geminiCorrectionKey;
         elements.enableCorrection.checked = state.settings.enableCorrection;
+        if (elements.chineseConversion) {
+            elements.chineseConversion.value = state.settings.chineseConversion || 'none';
+        }
         updateProviderVisibility();
     }
 }
@@ -120,6 +133,7 @@ function saveSettings() {
     state.settings.correctionProvider = elements.correctionProvider.value;
     state.settings.geminiCorrectionKey = elements.geminiCorrectionKey.value;
     state.settings.enableCorrection = elements.enableCorrection.checked;
+    state.settings.chineseConversion = elements.chineseConversion?.value || 'none';
     localStorage.setItem('transcriber_settings', JSON.stringify(state.settings));
     closeModal();
 }
@@ -170,6 +184,40 @@ function setupEventListeners() {
     if (elements.refineBtn) {
         elements.refineBtn.addEventListener('click', refineWithAI);
     }
+
+    // Editor Chinese Conversion
+    const conversionSelect = document.getElementById('editorChineseConversion');
+    if (conversionSelect) {
+        conversionSelect.addEventListener('change', async (e) => {
+            const type = e.target.value;
+            if (type === 'none') return;
+
+            const confirmMsg = `確定要將整份逐字稿轉換為${type === 's2t' ? '繁體' : '簡體'}嗎？\n這將建立一個新的歷史版本。`;
+            if (!confirm(confirmMsg)) {
+                e.target.value = 'none';
+                return;
+            }
+
+            // Save current version
+            saveVersion('轉換前');
+
+            // Show loading state (optional, can be improved)
+            const originalText = e.target.options[e.target.selectedIndex].text;
+            e.target.options[e.target.selectedIndex].text = '轉換中...';
+            e.target.disabled = true;
+
+            await convertTranscript(type);
+
+            renderEditor();
+
+            // Save new version
+            saveVersion(`轉換為${type === 's2t' ? '繁體' : '簡體'}`);
+
+            e.target.disabled = false;
+            e.target.options[e.target.selectedIndex].text = originalText;
+            e.target.value = 'none'; // Reset dropdown
+        });
+    }
 }
 
 function closeModal() {
@@ -212,9 +260,25 @@ async function copyErrorMessage() {
 
 function updateProviderVisibility() {
     const provider = elements.sttProvider.value;
-    document.getElementById('openaiKeyGroup').style.display = provider === 'openai' ? 'block' : 'none';
+    const isOpenAI = provider.startsWith('openai');
+
+    document.getElementById('openaiKeyGroup').style.display = isOpenAI ? 'block' : 'none';
     document.getElementById('geminiKeyGroup').style.display = provider === 'gemini' ? 'block' : 'none';
     document.getElementById('assemblyKeyGroup').style.display = provider === 'assemblyai' ? 'block' : 'none';
+
+    // Update hint text based on selected provider
+    const hintElement = document.getElementById('sttHint');
+    if (hintElement) {
+        const hints = {
+            'openai-whisper': '🎯 穩定轉錄 + SRT 字幕（無講者分離）',
+            'gemini': '⭐ 免費 + 講者分離 + 長影片支援',
+            'assemblyai': '🎯 精準講者分離 + 無檔案限制',
+            'openai-gpt4o': '⚡ 中英混雜最強（無講者分離）',
+            'openai-gpt4o-diarize': '🧪 Beta：講者分離（連線可能不穩定）',
+            'openai-gpt4o-mini': '💰 便宜（無講者分離）'
+        };
+        hintElement.textContent = hints[provider] || '';
+    }
 }
 
 // ===== Main Transcription Flow =====
@@ -233,9 +297,11 @@ async function startTranscription() {
 
     // Check API keys (skip if server has default keys)
     const provider = state.settings.sttProvider;
-    const hasServerKey = state.serverDefaultKeys?.[provider];
+    const isOpenAI = provider.startsWith('openai');
+    const providerKey = isOpenAI ? 'openai' : provider;
+    const hasServerKey = state.serverDefaultKeys?.[providerKey];
 
-    if (provider === 'openai' && !state.settings.openaiKey && !hasServerKey) {
+    if (isOpenAI && !state.settings.openaiKey && !hasServerKey) {
         showError('請先設定 OpenAI API Key\n\n點擊右上角的 ⚙️ 按鈕來設定 API Key');
         return;
     }
@@ -284,6 +350,12 @@ async function startTranscription() {
         updateOverallProgress(30, '正在上傳音訊檔案...');
 
         await performTranscription(url);
+
+        // Perform Chinese conversion if enabled
+        if (state.settings.chineseConversion && state.settings.chineseConversion !== 'none') {
+            updateProgress(2, 'active', '正在轉換繁簡字體...');
+            await convertTranscript(state.settings.chineseConversion);
+        }
 
         updateProgress(2, 'completed', '語音轉文字完成');
         updateOverallProgress(70, '語音轉文字完成');
@@ -425,8 +497,22 @@ function simulateStep(ms) {
 // ===== Transcription with Real APIs =====
 const API_BASE = window.location.origin;
 
+function getProviderName() {
+    const provider = state.settings.sttProvider;
+    const names = {
+        'openai-gpt4o-diarize': 'OpenAI GPT-4o Diarize',
+        'openai-gpt4o': 'OpenAI GPT-4o Transcribe',
+        'openai-gpt4o-mini': 'OpenAI GPT-4o Mini',
+        'openai-whisper': 'OpenAI Whisper',
+        'gemini': 'Google Gemini',
+        'assemblyai': 'AssemblyAI'
+    };
+    return names[provider] || provider;
+}
+
 async function performTranscription(url) {
     const provider = state.settings.sttProvider;
+    const isOpenAI = provider.startsWith('openai');
 
     // Start a progress simulation for long transcription
     let progressInterval = setInterval(() => {
@@ -439,19 +525,38 @@ async function performTranscription(url) {
 
     try {
         let apiKey;
-        if (provider === 'openai') apiKey = state.settings.openaiKey;
-        else if (provider === 'gemini') apiKey = state.settings.geminiKey;
-        else if (provider === 'assemblyai') apiKey = state.settings.assemblyKey;
+        let apiEndpoint;
+        let requestBody = {
+            videoId: state.videoInfo.videoId
+        };
+
+        if (isOpenAI) {
+            apiKey = state.settings.openaiKey;
+            apiEndpoint = 'openai';
+            // Map frontend provider to OpenAI model
+            const modelMap = {
+                'openai-whisper': 'whisper-1',
+                'openai-gpt4o': 'gpt-4o-transcribe',
+                'openai-gpt4o-diarize': 'gpt-4o-transcribe-diarize',
+                'openai-gpt4o-mini': 'gpt-4o-mini-transcribe'
+            };
+            requestBody.model = modelMap[provider] || 'whisper-1';
+        } else if (provider === 'gemini') {
+            apiKey = state.settings.geminiKey;
+            apiEndpoint = 'gemini';
+        } else if (provider === 'assemblyai') {
+            apiKey = state.settings.assemblyKey;
+            apiEndpoint = 'assemblyai';
+        }
+
+        requestBody.apiKey = apiKey;
 
         updateOverallProgress(35, `正在使用 ${getProviderName()} 轉錄...`);
 
-        const transcribeResult = await fetch(`${API_BASE}/api/transcribe/${provider}`, {
+        const transcribeResult = await fetch(`${API_BASE}/api/transcribe/${apiEndpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                videoId: state.videoInfo.videoId,
-                apiKey: apiKey
-            })
+            body: JSON.stringify(requestBody)
         }).then(r => r.json());
 
         clearInterval(progressInterval);
@@ -462,6 +567,11 @@ async function performTranscription(url) {
 
         state.transcript = transcribeResult.transcript;
         state.speakers = [...new Set(state.transcript.map(s => s.speaker))];
+        state.transcriptionInfo = {
+            model: transcribeResult.model || 'unknown',
+            language: transcribeResult.language || 'unknown',
+            duration: transcribeResult.duration || 0
+        };
     } catch (error) {
         clearInterval(progressInterval);
         throw error;
@@ -523,6 +633,41 @@ function generateDemoTranscript() {
     ];
 }
 
+// ===== Chinese Conversion =====
+async function convertTranscript(type) {
+    if (type === 'none' || !state.transcript.length) return;
+
+    try {
+        // Collect all text to convert in one batch to reduce API calls
+        // Join with a unique delimiter
+        const delimiter = '|||';
+        const fullText = state.transcript.map(s => s.text).join(delimiter);
+
+        const response = await fetch(`${API_BASE}/api/convert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: fullText, type: type })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            const convertedSegments = result.text.split(delimiter);
+
+            // Update transcript with converted text
+            state.transcript = state.transcript.map((seg, idx) => ({
+                ...seg,
+                text: convertedSegments[idx] || seg.text
+            }));
+
+            console.log(`Converted transcript (${type}) successfully`);
+        }
+    } catch (error) {
+        console.error('Chinese conversion failed:', error);
+        // Don't throw error here, just log it and continue
+    }
+}
+
 // ===== AI Correction =====
 async function performCorrection() {
     const correctionProvider = state.settings.correctionProvider;
@@ -538,6 +683,91 @@ async function performCorrection() {
         text: segment.text // In production, this would be the corrected text
     }));
 }
+
+// ===== Version Management =====
+// Save current state as a version
+function saveVersion(description = '手動修改') {
+    state.versions = state.versions || [];
+    state.versions.push({
+        timestamp: Date.now(),
+        description: description,
+        transcript: JSON.parse(JSON.stringify(state.transcript)),
+        changes: description
+    });
+    renderVersionList();
+}
+
+// Restore a specific version
+function restoreVersion(index) {
+    if (state.versions && state.versions[index]) {
+        if (!confirm('確定要還原此版本嗎？當前的修改將會遺失（除非您有先儲存）。')) {
+            return;
+        }
+
+        const version = state.versions[index];
+        state.transcript = JSON.parse(JSON.stringify(version.transcript));
+        renderEditor();
+        alert(`已還原至版本 #${index + 1}`);
+    }
+}
+
+// Render version history list
+function renderVersionList() {
+    const historyContainer = document.getElementById('changeHistory');
+    const listElement = document.getElementById('versionList');
+    const countElement = document.getElementById('versionCount');
+
+    if (!state.versions || state.versions.length === 0) {
+        if (historyContainer) historyContainer.style.display = 'none';
+        return;
+    }
+
+    if (historyContainer) historyContainer.style.display = 'block';
+    if (countElement) countElement.textContent = state.versions.length;
+
+    if (listElement) {
+        listElement.innerHTML = state.versions.map((ver, idx) => {
+            const time = new Date(ver.timestamp).toLocaleTimeString();
+            return `
+                <div class="version-item" onclick="viewVersionDetails(${idx})">
+                    <div class="version-header">
+                        <span class="version-id">#${idx + 1}</span>
+                        <span class="version-time">${time}</span>
+                    </div>
+                    <div class="version-desc">${ver.description.substring(0, 30)}${ver.description.length > 30 ? '...' : ''}</div>
+                </div>
+            `;
+        }).join('');
+
+        // Scroll to bottom
+        listElement.scrollTop = listElement.scrollHeight;
+    }
+}
+
+// View version details
+window.viewVersionDetails = function (index) {
+    const version = state.versions[index];
+    const detailsElement = document.getElementById('changeDetails');
+    const actionsElement = document.getElementById('versionActions');
+    const restoreBtn = document.getElementById('restoreVersionBtn');
+
+    if (detailsElement) {
+        detailsElement.innerHTML = `
+            <div class="version-detail-content">
+                <strong>版本 #${index + 1} 修改說明：</strong>
+                <pre>${version.changes || '無詳細說明'}</pre>
+            </div>
+        `;
+    }
+
+    if (actionsElement) actionsElement.style.display = 'flex';
+    if (restoreBtn) restoreBtn.onclick = () => restoreVersion(index);
+
+    // Highlight selected item
+    document.querySelectorAll('.version-item').forEach(el => el.classList.remove('selected'));
+    const items = document.querySelectorAll('.version-item');
+    if (items[index]) items[index].classList.add('selected');
+};
 
 // ===== AI Refinement with Custom Prompt =====
 async function refineWithAI() {
@@ -555,28 +785,25 @@ async function refineWithAI() {
     }
 
     // Get the API key based on correction provider
-    const provider = state.settings.correctionProvider;
-    let apiKey = '';
+    const correctionProvider = elements.correctionProvider.value;
+    const apiKey = correctionProvider === 'gemini' ?
+        elements.geminiCorrectionKey.value || state.settings.geminiCorrectionKey :
+        elements.openaiKey.value || state.settings.openaiKey;
 
-    if (provider === 'gemini') {
-        apiKey = state.settings.geminiCorrectionKey || state.settings.geminiKey;
-    } else if (provider === 'openai') {
-        apiKey = state.settings.openaiKey;
-    }
+    const refineBtn = document.getElementById('refineBtn');
+    const originalText = refineBtn.innerHTML;
+    refineBtn.innerHTML = '<span class="loading-spinner"></span> 正在思考並修改...';
+    refineBtn.disabled = true;
 
-    if (!apiKey) {
-        showError(`請先設定 ${provider === 'gemini' ? 'Gemini' : 'OpenAI'} API Key`);
-        return;
-    }
-
-    // Disable button and show loading state
-    const btn = elements.refineBtn;
-    btn.disabled = true;
-    btn.classList.add('loading');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<span>處理中...</span>';
+    // Get optional search setting
+    const enableWebSearch = document.getElementById('enableWebSearch')?.checked;
 
     try {
+        // Save current version before key changes
+        if (!state.versions || state.versions.length === 0) {
+            saveVersion('原始版本');
+        }
+
         const response = await fetch(`${API_BASE}/api/refine`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -584,44 +811,42 @@ async function refineWithAI() {
                 transcript: state.transcript,
                 prompt,
                 context,
-                provider,
-                apiKey
+                provider: correctionProvider,
+                apiKey,
+                enableWebSearch
             })
         });
 
         const result = await response.json();
 
         if (!result.success) {
-            throw new Error(result.error || 'AI 微調失敗');
+            throw new Error(result.error);
         }
 
-        // Save to change history
-        const historyEntry = {
-            timestamp: new Date().toLocaleString('zh-TW'),
-            prompt,
-            changes: result.changes,
-            previousTranscript: [...state.transcript]
-        };
-        state.changeHistory.unshift(historyEntry);
-
-        // Update transcript
         state.transcript = result.transcript;
-        state.speakers = [...new Set(state.transcript.map(s => s.speaker))];
-
-        // Re-render
         renderEditor();
-        renderChangeHistory();
+
+        // Save new version
+        saveVersion(`AI 微調: ${prompt.substring(0, 15)}...`);
+
+        // Show success and changes
+        let message = 'AI 修正完成！\n\n具體修改：\n' + result.changes;
+        if (result.batchCount > 1) {
+            message = `AI 修正完成！（共分 ${result.batchCount} 批處理）\n\n` + message;
+        }
+        alert(message);
 
         // Clear prompt
-        elements.refinePrompt.value = '';
+        document.getElementById('refinePrompt').value = '';
 
     } catch (error) {
-        console.error('Refine error:', error);
-        showError(error.message);
+        console.error('Refine failed:', error);
+        alert('AI 修正失敗: ' + error.message);
     } finally {
-        btn.disabled = false;
-        btn.classList.remove('loading');
-        btn.innerHTML = originalText;
+        const refineBtn = document.getElementById('refineBtn');
+        refineBtn.classList.remove('loading');
+        refineBtn.innerHTML = originalText;
+        refineBtn.disabled = false;
     }
 }
 
@@ -652,8 +877,21 @@ function escapeHtml(text) {
 
 // ===== Editor Rendering =====
 function renderEditor() {
+    renderTranscriptionInfo();
     renderSpeakerList();
     renderTranscript();
+}
+
+function renderTranscriptionInfo() {
+    const infoDiv = document.getElementById('transcriptionInfo');
+    const modelSpan = document.getElementById('modelInfo');
+    const langSpan = document.getElementById('languageInfo');
+
+    if (infoDiv && state.transcriptionInfo) {
+        infoDiv.style.display = 'block';
+        modelSpan.textContent = state.transcriptionInfo.model || '-';
+        langSpan.textContent = state.transcriptionInfo.language || '-';
+    }
 }
 
 function renderSpeakerList() {

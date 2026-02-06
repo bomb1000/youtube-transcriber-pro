@@ -6,6 +6,7 @@ const { spawn } = require('child_process');
 const OpenAI = require('openai');
 const axios = require('axios');
 const apiLogger = require('./api-logger');
+const OpenCC = require('opencc-js');
 require('dotenv').config();
 
 const app = express();
@@ -38,11 +39,200 @@ app.get('/api/config', (req, res) => {
     });
 });
 
+// ===== Helper Functions =====
+
+// Clean up common JSON issues from AI responses
+function cleanJsonString(str) {
+    // Replace Chinese punctuation with English
+    str = str.replace(/，/g, ',');
+    str = str.replace(/：/g, ':');
+    str = str.replace(/"/g, '"');
+    str = str.replace(/"/g, '"');
+    str = str.replace(/'/g, "'");
+    str = str.replace(/'/g, "'");
+    str = str.replace(/。/g, '.');
+
+    // Remove trailing commas before } or ]
+    str = str.replace(/,\s*}/g, '}');
+    str = str.replace(/,\s*]/g, ']');
+
+    // Remove any BOM or special characters
+    str = str.replace(/^\uFEFF/, '');
+
+    // Remove markdown code blocks if present
+    str = str.replace(/```json\s*/g, '');
+    str = str.replace(/```\s*/g, '');
+
+    // Fix unescaped newlines in strings (common issue)
+    str = str.replace(/"text"\s*:\s*"([^"]*)"/g, (match, content) => {
+        // Escape any unescaped newlines and problematic characters
+        const escaped = content
+            .replace(/\\/g, '\\\\')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+        return `"text": "${escaped}"`;
+    });
+
+    return str;
+}
+
+// Robust JSON parser with multiple fallback strategies
+function parseJsonRobust(str) {
+    // Strategy 1: Direct parse after cleaning
+    try {
+        return JSON.parse(cleanJsonString(str));
+    } catch (e) {
+        console.log('JSON parse strategy 1 failed, trying fallback...');
+    }
+
+    // Strategy 2: Try to extract just the segments array
+    try {
+        const segmentsMatch = str.match(/"segments"\s*:\s*\[([\s\S]*?)\]/);
+        if (segmentsMatch) {
+            const segmentsStr = `{"segments": [${segmentsMatch[1]}]}`;
+            return JSON.parse(cleanJsonString(segmentsStr));
+        }
+    } catch (e) {
+        console.log('JSON parse strategy 2 failed, trying fallback...');
+    }
+
+    // Strategy 3: Manual extraction of speaker/text pairs
+    try {
+        const segments = [];
+        const pattern = /"speaker"\s*:\s*"([^"]+)"[\s\S]*?"text"\s*:\s*"([^"]+)"/g;
+        let match;
+        let id = 1;
+        while ((match = pattern.exec(str)) !== null) {
+            segments.push({
+                id: id++,
+                speaker: match[1],
+                start: 0,
+                end: 0,
+                text: match[2]
+            });
+        }
+        if (segments.length > 0) {
+            return { segments };
+        }
+    } catch (e) {
+        console.log('JSON parse strategy 3 failed');
+    }
+
+    throw new Error('All JSON parsing strategies failed');
+}
+
+// Parse AI refine response with multiple fallback strategies
+function parseRefineResponse(text) {
+    // Remove markdown code blocks if present
+    let cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+
+    // Strategy 1: Try to find and parse the JSON object
+    try {
+        const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            return JSON.parse(jsonMatch[0]);
+        }
+    } catch (e) {
+        console.log('Refine parse strategy 1 failed:', e.message);
+    }
+
+    // Strategy 2: Try to fix common JSON issues (trailing commas, unescaped quotes)
+    try {
+        let fixed = cleaned;
+        // Find the main JSON object
+        const startIdx = fixed.indexOf('{');
+        const endIdx = fixed.lastIndexOf('}');
+        if (startIdx !== -1 && endIdx !== -1) {
+            fixed = fixed.substring(startIdx, endIdx + 1);
+        }
+
+        // Fix trailing commas before ] or }
+        fixed = fixed.replace(/,\s*([}\]])/g, '$1');
+
+        // Try to parse
+        return JSON.parse(fixed);
+    } catch (e) {
+        console.log('Refine parse strategy 2 failed:', e.message);
+    }
+
+    // Strategy 3: Try to extract transcript array separately
+    try {
+        const transcriptMatch = cleaned.match(/"transcript"\s*:\s*\[([\s\S]*?)\]([\s\S]*?"changes"[\s\S]*)/);
+        if (transcriptMatch) {
+            // Try to parse just the transcript array
+            let transcriptStr = '[' + transcriptMatch[1] + ']';
+            // Fix trailing commas
+            transcriptStr = transcriptStr.replace(/,\s*([}\]])/g, '$1');
+            const transcript = JSON.parse(transcriptStr);
+
+            // Extract changes
+            const changesMatch = transcriptMatch[2].match(/"changes"\s*:\s*"([^"]*)"/);
+            const changes = changesMatch ? changesMatch[1] : '修改完成';
+
+            return { transcript, changes };
+        }
+    } catch (e) {
+        console.log('Refine parse strategy 3 failed:', e.message);
+    }
+
+    // Strategy 4: Extract individual segments using regex
+    try {
+        const segments = [];
+        const segmentPattern = /\{\s*"id"\s*:\s*(\d+)\s*,\s*"speaker"\s*:\s*"([^"]+)"\s*,\s*"start"\s*:\s*([\d.]+)\s*,\s*"end"\s*:\s*([\d.]+)\s*,\s*"text"\s*:\s*"([^"]+)"\s*\}/g;
+        let match;
+        while ((match = segmentPattern.exec(cleaned)) !== null) {
+            segments.push({
+                id: parseInt(match[1]),
+                speaker: match[2],
+                start: parseFloat(match[3]),
+                end: parseFloat(match[4]),
+                text: match[5]
+            });
+        }
+
+        if (segments.length > 0) {
+            console.log(`Refine: Extracted ${segments.length} segments using regex`);
+            return { transcript: segments, changes: '修改完成（使用備用解析方式）' };
+        }
+    } catch (e) {
+        console.log('Refine parse strategy 4 failed:', e.message);
+    }
+
+    throw new Error('無法解析 AI 回應的 JSON 格式。請重試。');
+}
+
 // ===== Routes =====
 
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'YouTube Transcriber Pro API is running' });
+});
+
+// Convert Chinese text (s2t or t2s)
+app.post('/api/convert', (req, res) => {
+    const { text, type } = req.body;
+
+    if (!text || !type) {
+        return res.status(400).json({ error: 'Missing text or conversion type' });
+    }
+
+    try {
+        let converter;
+        if (type === 's2t') {
+            converter = OpenCC.Converter({ from: 'cn', to: 'tw' });
+        } else if (type === 't2s') {
+            converter = OpenCC.Converter({ from: 'tw', to: 'cn' });
+        } else {
+            return res.status(400).json({ error: 'Invalid conversion type. Use "s2t" or "t2s"' });
+        }
+
+        const converted = converter(text);
+        res.json({ success: true, text: converted });
+    } catch (error) {
+        console.error('Conversion error:', error);
+        res.status(500).json({ error: 'Conversion failed' });
+    }
 });
 
 // Download audio from YouTube using yt-dlp
@@ -172,8 +362,12 @@ app.post('/api/download', async (req, res) => {
 
 // Transcribe audio with OpenAI
 app.post('/api/transcribe/openai', async (req, res) => {
-    const { videoId, apiKey: userApiKey } = req.body;
+    const { videoId, apiKey: userApiKey, model: requestedModel } = req.body;
     const apiKey = userApiKey || DEFAULT_API_KEYS.openai;
+
+    // Support different OpenAI models (diarize is default for speaker separation)
+    const validModels = ['whisper-1', 'gpt-4o-transcribe', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe-diarize'];
+    const model = validModels.includes(requestedModel) ? requestedModel : 'gpt-4o-transcribe-diarize';
 
     if (!videoId) {
         return res.status(400).json({ error: 'Missing videoId' });
@@ -189,44 +383,118 @@ app.post('/api/transcribe/openai', async (req, res) => {
             return res.status(404).json({ error: '找不到音訊檔案，請重新下載。' });
         }
 
-        // Check file size (OpenAI Whisper limit is 25MB)
+        // Check file size (OpenAI limit is 25MB)
         const stats = await fs.stat(audioPath);
         const fileSizeMB = stats.size / (1024 * 1024);
-        console.log(`Audio file size: ${fileSizeMB.toFixed(2)} MB`);
+        console.log(`Audio file size: ${fileSizeMB.toFixed(2)} MB, using model: ${model}`);
 
         if (fileSizeMB > 25) {
             return res.status(400).json({
-                error: `音訊檔案太大 (${fileSizeMB.toFixed(2)} MB)。\n\nOpenAI Whisper API 限制最大 25MB。\n\n建議：\n1. 嘗試使用較短的影片\n2. 改用 AssemblyAI（無大小限制）`
+                error: `音訊檔案太大 (${fileSizeMB.toFixed(2)} MB)。\n\nOpenAI API 限制最大 25MB。\n\n建議：\n1. 嘗試使用較短的影片\n2. 改用 AssemblyAI（無大小限制）`
             });
         }
 
-        console.log('Creating OpenAI client...');
+        console.log(`Creating OpenAI client with model: ${model}...`);
         const openai = new OpenAI({
             apiKey,
             timeout: 300000, // 5 minutes timeout
             maxRetries: 3
         });
 
-        console.log('Sending to OpenAI Whisper API...');
+        console.log('Sending to OpenAI API...');
         const audioFile = fs.createReadStream(audioPath);
 
-        const transcription = await openai.audio.transcriptions.create({
+        // Different models support different response formats
+        const isWhisper = model === 'whisper-1';
+        const isDiarize = model === 'gpt-4o-transcribe-diarize';
+
+        let responseFormat = 'json';
+        if (isWhisper) {
+            responseFormat = 'verbose_json';
+        } else if (isDiarize) {
+            responseFormat = 'diarized_json';
+        }
+
+        const transcriptionOptions = {
             file: audioFile,
-            model: 'whisper-1',
-            response_format: 'verbose_json',
-            timestamp_granularities: ['segment']
-        });
+            model: model,
+            response_format: responseFormat
+        };
 
-        console.log('Transcription completed successfully');
+        // Only whisper-1 supports timestamp_granularities
+        if (isWhisper) {
+            transcriptionOptions.timestamp_granularities = ['segment'];
+        }
 
-        // Process segments with simple speaker detection based on pauses
-        const segments = processSegmentsWithSpeakers(transcription.segments);
+        // Diarize model requires chunking_strategy
+        if (isDiarize) {
+            transcriptionOptions.chunking_strategy = 'auto';
+        }
+
+        const transcription = await openai.audio.transcriptions.create(transcriptionOptions);
+
+        console.log(`Transcription completed successfully with ${model}`);
+        console.log('Response keys:', Object.keys(transcription));
+
+        // Debug: log the full structure for diarize model
+        if (isDiarize) {
+            console.log('Diarize response structure:', JSON.stringify(transcription, null, 2).substring(0, 1000));
+        }
+
+        let segments;
+
+        if (isDiarize) {
+            // Diarize model may return data in different structures
+            // Try segments first, then utterances, then words
+            const rawSegments = transcription.segments || transcription.utterances || transcription.words || [];
+
+            if (rawSegments.length > 0) {
+                segments = rawSegments.map((seg, idx) => ({
+                    id: idx + 1,
+                    speaker: seg.speaker || seg.speaker_label || `講者 ${String.fromCharCode(65 + (idx % 26))}`,
+                    start: seg.start || seg.start_time || 0,
+                    end: seg.end || seg.end_time || 0,
+                    text: seg.text || seg.transcript || ''
+                }));
+            } else if (transcription.text) {
+                // Fallback: if no segments, create one from the full text
+                console.log('Warning: Diarize model did not return segments, using full text');
+                segments = [{
+                    id: 1,
+                    speaker: '講者 A',
+                    start: 0,
+                    end: 0,
+                    text: transcription.text
+                }];
+            }
+        } else if (isWhisper && transcription.segments) {
+            // Whisper returns segments with timestamps but no speaker diarization
+            // Don't fake speaker separation based on pauses - it's inaccurate
+            // Just label all segments as single speaker
+            segments = transcription.segments.map((seg, idx) => ({
+                id: idx + 1,
+                speaker: '講者',
+                start: seg.start,
+                end: seg.end,
+                text: seg.text.trim()
+            }));
+        } else {
+            // GPT-4o models without diarize return just text, we need to create a single segment
+            segments = [{
+                id: 1,
+                speaker: '講者',
+                start: 0,
+                end: 0,
+                text: transcription.text || transcription
+            }];
+        }
 
         res.json({
             success: true,
             transcript: segments,
-            language: transcription.language,
-            duration: transcription.duration
+            model: model,
+            language: transcription.language || 'detected',
+            duration: transcription.duration || 0
         });
 
     } catch (error) {
@@ -285,12 +553,14 @@ app.post('/api/transcribe/assemblyai', async (req, res) => {
         console.log('Upload complete, starting transcription...');
 
         // Step 2: Start transcription with speaker diarization
+        // Use 'best' which includes universal-2 for Chinese support
         const transcriptResponse = await axios.post(
             'https://api.assemblyai.com/v2/transcript',
             {
                 audio_url: uploadUrl,
                 speaker_labels: true,
-                language_code: 'zh'
+                speech_models: ['universal-2'],  // Universal-2 supports Chinese
+                language_detection: true  // Auto-detect language
             },
             {
                 headers: {
@@ -323,18 +593,90 @@ app.post('/api/transcribe/assemblyai', async (req, res) => {
             await new Promise(r => setTimeout(r, 3000));
         }
 
-        // Process utterances with speaker labels
-        const segments = (transcript.utterances || []).map((utt, idx) => ({
-            id: idx + 1,
-            speaker: `講者 ${utt.speaker}`,
-            start: utt.start / 1000,
-            end: utt.end / 1000,
-            text: utt.text
-        }));
+        // Process with better segmentation for SRT
+        // Use words to create smaller segments (better for subtitles)
+        const words = transcript.words || [];
+        const utterances = transcript.utterances || [];
+
+        let segments = [];
+
+        if (words.length > 0 && utterances.length > 0) {
+            // Create segments by combining words into reasonable subtitle lengths
+            // Max ~15 words or ~5 seconds per segment
+            const MAX_WORDS_PER_SEGMENT = 15;
+            const MAX_DURATION_MS = 5000;
+
+            let currentSegment = { words: [], speaker: 'A', start: 0, end: 0 };
+            let segmentId = 1;
+
+            // Create a map of word timestamps to speakers from utterances
+            const getSpeakerAtTime = (startTime) => {
+                for (const utt of utterances) {
+                    if (startTime >= utt.start && startTime <= utt.end) {
+                        return utt.speaker;
+                    }
+                }
+                return 'A';
+            };
+
+            for (const word of words) {
+                const speaker = getSpeakerAtTime(word.start);
+                const duration = currentSegment.words.length > 0
+                    ? word.end - currentSegment.start
+                    : 0;
+
+                // Start new segment if: speaker changed, too many words, or too long
+                if (currentSegment.words.length > 0 && (
+                    speaker !== currentSegment.speaker ||
+                    currentSegment.words.length >= MAX_WORDS_PER_SEGMENT ||
+                    duration >= MAX_DURATION_MS
+                )) {
+                    // Save current segment
+                    segments.push({
+                        id: segmentId++,
+                        speaker: `講者 ${currentSegment.speaker}`,
+                        start: currentSegment.start / 1000,
+                        end: currentSegment.end / 1000,
+                        text: currentSegment.words.map(w => w.text).join('')
+                    });
+                    currentSegment = { words: [], speaker: speaker, start: word.start, end: word.end };
+                }
+
+                if (currentSegment.words.length === 0) {
+                    currentSegment.start = word.start;
+                    currentSegment.speaker = speaker;
+                }
+                currentSegment.words.push(word);
+                currentSegment.end = word.end;
+            }
+
+            // Don't forget the last segment
+            if (currentSegment.words.length > 0) {
+                segments.push({
+                    id: segmentId++,
+                    speaker: `講者 ${currentSegment.speaker}`,
+                    start: currentSegment.start / 1000,
+                    end: currentSegment.end / 1000,
+                    text: currentSegment.words.map(w => w.text).join('')
+                });
+            }
+        } else {
+            // Fallback to utterances if words not available
+            segments = utterances.map((utt, idx) => ({
+                id: idx + 1,
+                speaker: `講者 ${utt.speaker}`,
+                start: utt.start / 1000,
+                end: utt.end / 1000,
+                text: utt.text
+            }));
+        }
 
         res.json({
             success: true,
-            transcript: segments
+            transcript: segments,
+            model: 'universal-2',
+            language: transcript.language_code || 'detected',
+            duration: (transcript.audio_duration || 0)
         });
 
     } catch (error) {
@@ -369,8 +711,8 @@ app.post('/api/transcribe/gemini', async (req, res) => {
 
         let fileUri;
 
-        // For files > 20MB, use File API
-        if (fileSizeMB > 20) {
+        // For files > 10MB, use File API (more stable)
+        if (fileSizeMB > 10) {
             console.log('File is large, uploading via Gemini File API...');
 
             // Step 1: Start resumable upload
@@ -469,13 +811,9 @@ app.post('/api/transcribe/gemini', async (req, res) => {
             );
 
             const textContent = transcriptionResponse.data.candidates[0].content.parts[0].text;
-            const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+            console.log('Raw Gemini response length:', textContent.length);
 
-            if (!jsonMatch) {
-                throw new Error('Failed to parse Gemini response');
-            }
-
-            const parsed = JSON.parse(jsonMatch[0]);
+            const parsed = parseJsonRobust(textContent);
             const segments = parsed.segments.map((seg, idx) => ({
                 id: idx + 1,
                 ...seg
@@ -523,13 +861,9 @@ app.post('/api/transcribe/gemini', async (req, res) => {
             );
 
             const textContent = response.data.candidates[0].content.parts[0].text;
-            const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+            console.log('Raw Gemini response length:', textContent.length);
 
-            if (!jsonMatch) {
-                throw new Error('Failed to parse Gemini response');
-            }
-
-            const parsed = JSON.parse(jsonMatch[0]);
+            const parsed = parseJsonRobust(textContent);
             const segments = parsed.segments.map((seg, idx) => ({
                 id: idx + 1,
                 ...seg
@@ -543,6 +877,11 @@ app.post('/api/transcribe/gemini', async (req, res) => {
 
     } catch (error) {
         console.error('Gemini error:', error);
+
+        // If JSON parsing failed, try to provide more context
+        if (error.message.includes('JSON')) {
+            console.error('JSON parsing error - raw response may have format issues');
+        }
 
         let errorMessage = error.message;
 
@@ -620,9 +959,9 @@ ${JSON.stringify(transcript, null, 2)}
     }
 });
 
-// AI Refine with Custom Prompt
+// AI Refine with Custom Prompt - Chunked Processing + Google Search
 app.post('/api/refine', async (req, res) => {
-    const { transcript, prompt, provider, apiKey: userApiKey, context } = req.body;
+    const { transcript, prompt, provider, apiKey: userApiKey, context, enableWebSearch } = req.body;
     const apiKey = userApiKey || (provider === 'gemini' ? DEFAULT_API_KEYS.gemini : DEFAULT_API_KEYS.openai);
 
     if (!transcript || !prompt) {
@@ -634,50 +973,115 @@ app.post('/api/refine', async (req, res) => {
 
     const startTime = Date.now();
     let model = '';
+    const BATCH_SIZE = 50; // Process 50 segments at a time
 
     try {
-        const systemPrompt = `你是一位專業的逐字稿編輯助手。請根據用戶的指示修改以下逐字稿。
+        // Split transcript into batches
+        const batches = [];
+        for (let i = 0; i < transcript.length; i += BATCH_SIZE) {
+            batches.push(transcript.slice(i, i + BATCH_SIZE));
+        }
+
+        console.log(`Refine: Processing ${transcript.length} segments in ${batches.length} batch(es)`);
+
+        const allChanges = [];
+        const processedTranscript = [];
+
+        // Process each batch
+        for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+            const batch = batches[batchIndex];
+            const batchStart = batchIndex * BATCH_SIZE;
+
+            console.log(`Processing batch ${batchIndex + 1}/${batches.length} (segments ${batchStart + 1}-${batchStart + batch.length})`);
+
+            // Get context from previous batch (last 5 segments)
+            let previousContextStr = '';
+            if (batchIndex > 0) {
+                const prevBatch = batches[batchIndex - 1];
+                const overlapSegments = prevBatch.slice(-5); // Last 5 segments
+                previousContextStr = `
+上下文銜接（這是上一批次的結尾，僅供參考，請勿修改）：
+${JSON.stringify(overlapSegments, null, 2)}
+`;
+            }
+
+            const batchPrompt = `你是一位專業的逐字稿編輯助手。請根據用戶的指示修改以下逐字稿片段。
 
 ${context ? `影片相關背景：${context}\n\n` : ''}用戶指示：${prompt}
 
-逐字稿：
-${JSON.stringify(transcript, null, 2)}
+這是第 ${batchIndex + 1} 批，共 ${batches.length} 批。段落編號從 ${batchStart + 1} 開始。
+${previousContextStr}
+逐字稿片段（請修正此部分的內容）：
+${JSON.stringify(batch, null, 2)}
 
-請按照相同的 JSON 格式回覆修改後的逐字稿，並在最後附上一個 "changes" 欄位說明你做了哪些修改。
+請按照相同的 JSON 格式回覆修改後的逐字稿，保持原有的 id、speaker、start、end 欄位不變，只修改 text 欄位。
 格式：
 {
   "transcript": [...修改後的逐字稿...],
-  "changes": "1. 修改項目一\n2. 修改項目二..."
+  "changes": "本批修改說明..."
 }
 只回覆 JSON，不要其他文字。`;
 
-        let result;
+            let batchResult;
 
-        if (provider === 'openai') {
-            model = 'gpt-4o';
-            const openai = new OpenAI({ apiKey });
-            const completion = await openai.chat.completions.create({
-                model: model,
-                messages: [{ role: 'user', content: systemPrompt }],
-                temperature: 0.3
-            });
+            if (provider === 'openai') {
+                model = 'gpt-4o';
+                const openai = new OpenAI({ apiKey });
+                const completion = await openai.chat.completions.create({
+                    model: model,
+                    messages: [{ role: 'user', content: batchPrompt }],
+                    temperature: 0.3,
+                    max_tokens: 16000
+                });
 
-            const response = completion.choices[0].message.content;
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
-            result = JSON.parse(jsonMatch[0]);
+                const response = completion.choices[0].message.content;
+                batchResult = parseRefineResponse(response);
 
-        } else if (provider === 'gemini') {
-            model = 'gemini-2.0-flash';
-            const response = await axios.post(
-                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-                {
-                    contents: [{ parts: [{ text: systemPrompt }] }]
+            } else if (provider === 'gemini') {
+                model = 'gemini-2.0-flash';
+
+                // Build request body with optional Google Search grounding
+                const requestBody = {
+                    contents: [{ parts: [{ text: batchPrompt }] }],
+                    generationConfig: {
+                        temperature: 0.3,
+                        maxOutputTokens: 16000
+                    }
+                };
+
+                // Add Google Search grounding if enabled
+                if (enableWebSearch) {
+                    requestBody.tools = [{
+                        google_search_retrieval: {
+                            dynamic_retrieval_config: {
+                                mode: "MODE_DYNAMIC",
+                                dynamic_threshold: 0.3
+                            }
+                        }
+                    }];
                 }
-            );
 
-            const textContent = response.data.candidates[0].content.parts[0].text;
-            const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-            result = JSON.parse(jsonMatch[0]);
+                const response = await axios.post(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+                    requestBody
+                );
+
+                const textContent = response.data.candidates[0].content.parts[0].text;
+                batchResult = parseRefineResponse(textContent);
+            }
+
+            // Collect results
+            if (batchResult.transcript && Array.isArray(batchResult.transcript)) {
+                processedTranscript.push(...batchResult.transcript);
+            } else {
+                // If parsing failed, keep original batch
+                console.log(`Batch ${batchIndex + 1} parsing failed, keeping original`);
+                processedTranscript.push(...batch);
+            }
+
+            if (batchResult.changes) {
+                allChanges.push(`[批次 ${batchIndex + 1}] ${batchResult.changes}`);
+            }
         }
 
         const duration = Date.now() - startTime;
@@ -688,13 +1092,16 @@ ${JSON.stringify(transcript, null, 2)}
             model,
             action: 'refine',
             duration,
-            success: true
+            success: true,
+            batches: batches.length
         });
 
         res.json({
             success: true,
-            transcript: result.transcript,
-            changes: result.changes || '無具體修改說明'
+            transcript: processedTranscript,
+            changes: allChanges.join('\n\n') || '無具體修改說明',
+            batchCount: batches.length,
+            webSearchEnabled: !!enableWebSearch
         });
 
     } catch (error) {
