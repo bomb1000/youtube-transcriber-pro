@@ -40,6 +40,32 @@ app.get('/api/config', (req, res) => {
 });
 
 // ===== Helper Functions =====
+async function resolveYtdlpCookiesPath() {
+    const envPath = process.env.YTDLP_COOKIES_PATH || process.env.YTDLP_COOKIES || '';
+    const envBase64 = process.env.YTDLP_COOKIES_BASE64 || process.env.YTDLP_COOKIES_B64 || '';
+
+    if (envBase64) {
+        try {
+            const decoded = Buffer.from(envBase64, 'base64').toString('utf8');
+            if (decoded.trim()) {
+                const cookiesPath = path.join(TEMP_DIR, 'yt-dlp-cookies.txt');
+                await fs.outputFile(cookiesPath, decoded);
+                return cookiesPath;
+            }
+        } catch (error) {
+            console.warn('Failed to decode YTDLP_COOKIES_BASE64:', error.message);
+        }
+    }
+
+    if (envPath) {
+        if (await fs.pathExists(envPath)) {
+            return envPath;
+        }
+        console.warn(`YTDLP_COOKIES_PATH does not exist: ${envPath}`);
+    }
+
+    return '';
+}
 
 // Clean up common JSON issues from AI responses
 function cleanJsonString(str) {
@@ -286,6 +312,7 @@ app.post('/api/download', async (req, res) => {
             }
         }
 
+        const cookiesPath = await resolveYtdlpCookiesPath();
         const ytdlpArgs = [
             '-x',                           // Extract audio only
             '--audio-format', 'opus',       // Convert to opus (webm container)
@@ -294,6 +321,10 @@ app.post('/api/download', async (req, res) => {
             '--no-playlist',                // Don't download playlist
             '--no-warnings',                // Suppress warnings
         ];
+
+        if (cookiesPath) {
+            ytdlpArgs.push('--cookies', cookiesPath);
+        }
 
         // Add ffmpeg location if available (Windows)
         if (ffmpegPath) {
@@ -356,7 +387,11 @@ app.post('/api/download', async (req, res) => {
 
     } catch (error) {
         console.error('Download error:', error);
-        res.status(500).json({ error: `下載失敗: ${error.message}` });
+        let message = error.message || 'Unknown error';
+        if (message.includes('Sign in to confirm') || message.includes('cookies')) {
+            message += '。請在部署環境設定 YTDLP_COOKIES_PATH 或 YTDLP_COOKIES_BASE64 以提供 YouTube cookies。';
+        }
+        res.status(500).json({ error: `下載失敗: ${message}` });
     }
 });
 
