@@ -849,9 +849,19 @@ async function refineWithAI() {
             })
         });
 
-        const result = await response.json();
+        const contentType = response.headers.get('content-type') || '';
+        let result;
+        if (contentType.includes('application/json')) {
+            result = await response.json();
+        } else {
+            const text = await response.text();
+            const fallbackMessage = response.status === 413
+                ? '請求內容過大，請縮短逐字稿或提高伺服器 JSON_BODY_LIMIT。'
+                : `伺服器回應非 JSON（HTTP ${response.status}）。`;
+            throw new Error(`${fallbackMessage}\n${text.slice(0, 200)}`);
+        }
 
-        if (!result.success) {
+        if (!response.ok || !result.success) {
             throw new Error(result.error);
         }
 
