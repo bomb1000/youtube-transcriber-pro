@@ -21,12 +21,21 @@ const DEFAULT_API_KEYS = {
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '20mb' }));
+app.use((err, req, res, next) => {
+    if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+        return res.status(413).json({
+            error: '請求內容過大，請縮短逐字稿或提高 JSON_BODY_LIMIT。'
+        });
+    }
+    return next(err);
+});
 app.use(express.static(path.join(__dirname)));
 
 // Ensure temp directory exists
 const TEMP_DIR = path.join(__dirname, 'temp');
 fs.ensureDirSync(TEMP_DIR);
+const UPLOAD_MAX_BYTES = Number(process.env.UPLOAD_MAX_BYTES) || 1024 * 1024 * 1024;
 
 // ===== API to get default keys status =====
 app.get('/api/config', (req, res) => {
@@ -97,6 +106,16 @@ async function resolveYtdlpCookiesArgs(options = {}) {
     }
 
     return { args: [], cleanup };
+}
+
+async function resolveAudioPath(videoId) {
+    const defaultPath = path.join(TEMP_DIR, `${videoId}.webm`);
+    if (await fs.pathExists(defaultPath)) {
+        return defaultPath;
+    }
+    const files = await fs.readdir(TEMP_DIR);
+    const match = files.find(file => file.startsWith(videoId));
+    return match ? path.join(TEMP_DIR, match) : defaultPath;
 }
 
 // Clean up common JSON issues from AI responses
@@ -293,6 +312,33 @@ app.post('/api/convert', (req, res) => {
     }
 });
 
+// Upload local media file
+app.post('/api/upload', express.raw({ type: '*/*', limit: UPLOAD_MAX_BYTES }), async (req, res) => {
+    if (!req.body || !req.body.length) {
+        return res.status(400).json({ error: 'Missing file upload' });
+    }
+
+    try {
+        const rawName = req.headers['x-filename'] || 'uploaded-media';
+        const originalName = decodeURIComponent(rawName.toString());
+        const ext = path.extname(originalName) || '';
+        const videoId = `upload_${Date.now()}`;
+        const targetPath = path.join(TEMP_DIR, `${videoId}${ext}`);
+
+        await fs.writeFile(targetPath, req.body);
+
+        return res.json({
+            success: true,
+            videoId,
+            title: originalName,
+            audioPath: targetPath
+        });
+    } catch (error) {
+        console.error('Upload error:', error);
+        return res.status(500).json({ error: 'Upload failed' });
+    }
+});
+
 // Download audio from YouTube using yt-dlp
 app.post('/api/download', async (req, res) => {
     const { url, cookiesText, cookiesBase64, cookiesFromBrowser } = req.body;
@@ -452,10 +498,10 @@ app.post('/api/transcribe/openai', async (req, res) => {
     }
 
     try {
-        const audioPath = path.join(TEMP_DIR, `${videoId}.webm`);
+        const audioPath = await resolveAudioPath(videoId);
 
         if (!await fs.pathExists(audioPath)) {
-            return res.status(404).json({ error: '找不到音訊檔案，請重新下載。' });
+            return res.status(404).json({ error: '找不到音訊檔案，請重新下載或重新上傳。' });
         }
 
         // Check file size (OpenAI limit is 25MB)
@@ -603,7 +649,7 @@ app.post('/api/transcribe/assemblyai', async (req, res) => {
     }
 
     try {
-        const audioPath = path.join(TEMP_DIR, `${videoId}.webm`);
+        const audioPath = await resolveAudioPath(videoId);
 
         if (!await fs.pathExists(audioPath)) {
             return res.status(404).json({ error: 'Audio file not found' });
@@ -773,7 +819,7 @@ app.post('/api/transcribe/gemini', async (req, res) => {
     }
 
     try {
-        const audioPath = path.join(TEMP_DIR, `${videoId}.webm`);
+        const audioPath = await resolveAudioPath(videoId);
 
         if (!await fs.pathExists(audioPath)) {
             return res.status(404).json({ error: 'Audio file not found' });
