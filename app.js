@@ -43,6 +43,7 @@ const elements = {
     enableCorrection: document.getElementById('enableCorrection'),
     chineseConversion: document.getElementById('chineseConversion'),
     youtubeUrl: document.getElementById('youtubeUrl'),
+    cookiesInput: document.getElementById('cookiesInput'),
     startBtn: document.getElementById('startBtn'),
     inputSection: document.getElementById('inputSection'),
     progressSection: document.getElementById('progressSection'),
@@ -580,10 +581,15 @@ async function performTranscription(url) {
 
 async function downloadAudio(url) {
     try {
+        const cookiesText = elements.cookiesInput?.value?.trim();
+        const payload = { url };
+        if (cookiesText) {
+            payload.cookiesText = cookiesText;
+        }
         const response = await fetch(`${API_BASE}/api/download`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url })
+            body: JSON.stringify(payload)
         });
         return await response.json();
     } catch (error) {

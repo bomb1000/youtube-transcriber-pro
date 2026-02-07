@@ -221,6 +221,31 @@ body {
     padding: 1.25rem 1.5rem;
 }
 
+.cookies-details {
+    margin-top: -0.5rem;
+    margin-bottom: 1.5rem;
+    color: var(--text-secondary);
+}
+
+.cookies-details summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.cookies-content {
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.cookies-textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 140px;
+}
+
 .btn {
     display: inline-flex;
     align-items: center;
