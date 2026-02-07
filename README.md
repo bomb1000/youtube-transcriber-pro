@@ -1,6 +1,12 @@
 # 🎬 YouTube Transcriber Pro
 
-![Website](https://youtube-transcriber-pro-production.up.railway.app/)
+## 🔗 Deployment
+
+[![Website](https://img.shields.io/badge/Live_Demo-Railway-blue?style=for-the-badge&logo=railway)](https://youtube-transcriber-pro-production.up.railway.app/)
+
+> [!TIP]
+> 點擊上方按鈕即可進入 YouTube Transcriber Pro 生產環境。
+
 
 A professional-grade YouTube video transcription tool that leverages state-of-the-art AI models to convert video to text with high accuracy. Features speaker diarization, AI-powered refinement, and multi-language support.
 
