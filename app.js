@@ -266,6 +266,16 @@ function updateCookiesMode() {
     });
 }
 
+function getCorrectionApiKey() {
+    const correctionProvider = elements.correctionProvider.value;
+    const providerKey = correctionProvider === 'gemini' ? 'gemini' : 'openai';
+    const hasServerKey = state.serverDefaultKeys?.[providerKey];
+    const apiKey = correctionProvider === 'gemini'
+        ? elements.geminiCorrectionKey.value || state.settings.geminiCorrectionKey
+        : elements.openaiKey.value || state.settings.openaiKey;
+    return { apiKey, hasServerKey, correctionProvider };
+}
+
 function openVersionModal() {
     if (!elements.versionDetailModal || !elements.versionDetailContent) return;
     if (state.selectedVersionIndex === null && state.versions?.length) {
@@ -1099,14 +1109,14 @@ async function runRefineRequest({ prompt, context, provider, apiKey, enableWebSe
 }
 
 async function autoRefineAfterStt() {
-    const correctionProvider = elements.correctionProvider.value;
-    const apiKey = correctionProvider === 'gemini'
-        ? elements.geminiCorrectionKey.value || state.settings.geminiCorrectionKey
-        : elements.openaiKey.value || state.settings.openaiKey;
+    const { apiKey, hasServerKey, correctionProvider } = getCorrectionApiKey();
 
     const prompt = '這是STT轉譯稿 請你找出你看起來不合理的地方，並嘗試推敲並修正';
 
     try {
+        if (!apiKey && !hasServerKey) {
+            return false;
+        }
         const result = await runRefineRequest({
             prompt,
             context: '',
@@ -1139,10 +1149,13 @@ async function refineWithAI() {
     }
 
     // Get the API key based on correction provider
-    const correctionProvider = elements.correctionProvider.value;
-    const apiKey = correctionProvider === 'gemini' ?
-        elements.geminiCorrectionKey.value || state.settings.geminiCorrectionKey :
-        elements.openaiKey.value || state.settings.openaiKey;
+    const { apiKey, hasServerKey, correctionProvider } = getCorrectionApiKey();
+    if (!apiKey && !hasServerKey) {
+        showError(correctionProvider === 'gemini'
+            ? '請先設定 Gemini API Key\n\n點擊右上角的 ⚙️ 按鈕來設定 API Key'
+            : '請先設定 OpenAI API Key\n\n點擊右上角的 ⚙️ 按鈕來設定 API Key');
+        return;
+    }
 
     const refineBtn = document.getElementById('refineBtn');
     const originalText = refineBtn.innerHTML;
