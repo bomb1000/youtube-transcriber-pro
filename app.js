@@ -13,6 +13,7 @@ const state = {
     transcript: [],
     speakers: [],
     videoInfo: null,
+    selectedVersionIndex: null,
     // Progress tracking
     currentStep: 0,
     startTime: null,
@@ -47,6 +48,10 @@ const elements = {
     cookiesInput: document.getElementById('cookiesInput'),
     cookiesBase64Input: document.getElementById('cookiesBase64Input'),
     cookiesFromBrowserInput: document.getElementById('cookiesFromBrowserInput'),
+    transcriptUpload: document.getElementById('transcriptUpload'),
+    loadTranscriptBtn: document.getElementById('loadTranscriptBtn'),
+    mediaUpload: document.getElementById('mediaUpload'),
+    uploadMediaBtn: document.getElementById('uploadMediaBtn'),
     startBtn: document.getElementById('startBtn'),
     inputSection: document.getElementById('inputSection'),
     progressSection: document.getElementById('progressSection'),
@@ -71,7 +76,11 @@ const elements = {
     refineContext: document.getElementById('refineContext'),
     refineBtn: document.getElementById('refineBtn'),
     changeHistory: document.getElementById('changeHistory'),
-    changeHistoryList: document.getElementById('changeHistoryList')
+    changeHistoryList: document.getElementById('changeHistoryList'),
+    openVersionModal: document.getElementById('openVersionModal'),
+    versionDetailModal: document.getElementById('versionDetailModal'),
+    closeVersionDetail: document.getElementById('closeVersionDetail'),
+    versionDetailContent: document.getElementById('versionDetailContent')
 };
 
 // ===== Initialize =====
@@ -162,6 +171,13 @@ function setupEventListeners() {
     // Start transcription
     elements.startBtn.addEventListener('click', startTranscription);
 
+    if (elements.loadTranscriptBtn) {
+        elements.loadTranscriptBtn.addEventListener('click', handleTranscriptUpload);
+    }
+    if (elements.uploadMediaBtn) {
+        elements.uploadMediaBtn.addEventListener('click', startTranscriptionFromUpload);
+    }
+
     // Download buttons
     elements.downloadSrtBtn.addEventListener('click', downloadSRT);
     elements.downloadTxtBtn.addEventListener('click', downloadTXT);
@@ -173,6 +189,18 @@ function setupEventListeners() {
 
     if (elements.cookiesMode) {
         elements.cookiesMode.addEventListener('change', updateCookiesMode);
+    }
+
+    if (elements.openVersionModal) {
+        elements.openVersionModal.addEventListener('click', openVersionModal);
+    }
+    if (elements.closeVersionDetail) {
+        elements.closeVersionDetail.addEventListener('click', closeVersionModal);
+    }
+    if (elements.versionDetailModal) {
+        elements.versionDetailModal.addEventListener('click', (e) => {
+            if (e.target === elements.versionDetailModal) closeVersionModal();
+        });
     }
 
     // Error modal
@@ -236,6 +264,101 @@ function updateCookiesMode() {
         const fieldMode = field.getAttribute('data-cookies-field');
         field.hidden = fieldMode !== mode;
     });
+}
+
+function openVersionModal() {
+    if (!elements.versionDetailModal || !elements.versionDetailContent) return;
+    if (state.selectedVersionIndex === null && state.versions?.length) {
+        state.selectedVersionIndex = state.versions.length - 1;
+    }
+    const version = state.versions?.[state.selectedVersionIndex];
+    if (!version) return;
+    elements.versionDetailContent.textContent = `版本 #${state.selectedVersionIndex + 1}\n${version.description}\n\n${version.changes || '無詳細說明'}`;
+    elements.versionDetailModal.classList.add('active');
+}
+
+function closeVersionModal() {
+    elements.versionDetailModal?.classList.remove('active');
+}
+
+async function handleTranscriptUpload() {
+    const files = Array.from(elements.transcriptUpload?.files || []);
+    if (files.length === 0) {
+        showError('請選擇要上傳的 SRT 或 TXT 檔案');
+        return;
+    }
+
+    const segments = [];
+
+    for (const file of files) {
+        const content = await file.text();
+        const isSrt = file.name.toLowerCase().endsWith('.srt');
+        const parsed = isSrt ? parseSrtContent(content) : parseTxtContent(content);
+        segments.push(...parsed);
+    }
+
+    if (segments.length === 0) {
+        showError('未找到可用的逐字稿內容');
+        return;
+    }
+
+    const normalized = normalizeTranscriptSegments(segments);
+    const title = files.map(file => file.name).join(', ');
+    loadTranscriptIntoEditor(normalized, title, '匯入逐字稿');
+}
+
+async function startTranscriptionFromUpload() {
+    const file = elements.mediaUpload?.files?.[0];
+
+    if (!file) {
+        showError('請選擇要上傳的影片或音訊檔案');
+        return;
+    }
+
+    state.isProcessing = true;
+    state.startTime = Date.now();
+    state.currentStep = 0;
+    state.abortController = new AbortController();
+    state.versions = [];
+    state.selectedVersionIndex = null;
+    state.versions = [];
+    state.selectedVersionIndex = null;
+
+    elements.inputSection.style.display = 'none';
+    elements.progressSection.style.display = 'block';
+    resetProgressUI();
+
+    try {
+        state.currentStep = 1;
+        updateProgress(1, 'active', '正在上傳檔案...');
+        updateOverallProgress(10, '正在上傳檔案...');
+
+        const uploadResult = await uploadMediaFile(file);
+        if (!uploadResult.success) {
+            throw new Error(uploadResult.error || '檔案上傳失敗');
+        }
+
+        state.videoInfo = {
+            videoId: uploadResult.videoId,
+            title: uploadResult.title,
+            duration: uploadResult.duration
+        };
+
+        updateProgress(1, 'completed', `檔案上傳完成 ${uploadResult.title ? `(${uploadResult.title})` : ''}`);
+        updateOverallProgress(25, '檔案上傳完成');
+
+        await runTranscriptionFlow();
+    } catch (error) {
+        console.error('Upload transcription error:', error);
+        state.isProcessing = false;
+
+        if (error.name === 'AbortError') {
+            resetToInput();
+        } else {
+            showError(error.message);
+            resetToInput();
+        }
+    }
 }
 
 function closeModal() {
@@ -362,50 +485,7 @@ async function startTranscription() {
         updateProgress(1, 'completed', `音訊下載完成 ${downloadResult.title ? `(${downloadResult.title})` : ''}`);
         updateOverallProgress(25, '音訊下載完成');
 
-        // Step 2: Transcribe
-        state.currentStep = 2;
-        updateProgress(2, 'active', `正在使用 ${getProviderName()} 轉錄中...`);
-        updateOverallProgress(30, '正在上傳音訊檔案...');
-
-        await performTranscription(url);
-
-        // Perform Chinese conversion if enabled
-        if (state.settings.chineseConversion && state.settings.chineseConversion !== 'none') {
-            updateProgress(2, 'active', '正在轉換繁簡字體...');
-            await convertTranscript(state.settings.chineseConversion);
-        }
-
-        updateProgress(2, 'completed', '語音轉文字完成');
-        updateOverallProgress(70, '語音轉文字完成');
-
-        // Step 3: AI Correction
-        state.currentStep = 3;
-        if (state.settings.enableCorrection) {
-            updateProgress(3, 'active', '正在使用 AI 修正...');
-            updateOverallProgress(75, '正在 AI 智能修正...');
-            await performCorrection();
-            updateProgress(3, 'completed', 'AI 修正完成');
-            updateOverallProgress(90, 'AI 修正完成');
-        } else {
-            updateProgress(3, 'completed', '已跳過');
-            updateOverallProgress(90, '');
-        }
-
-        // Step 4: Generate SRT
-        state.currentStep = 4;
-        updateProgress(4, 'active', '正在生成 SRT...');
-        updateOverallProgress(95, '正在生成 SRT 檔案...');
-        await simulateStep(500);
-        updateProgress(4, 'completed', 'SRT 生成完成');
-        updateOverallProgress(100, '完成！');
-
-        // Show editor
-        state.isProcessing = false;
-        setTimeout(() => {
-            elements.progressSection.style.display = 'none';
-            elements.editorSection.style.display = 'block';
-            renderEditor();
-        }, 1000);
+        await runTranscriptionFlow();
 
     } catch (error) {
         console.error('Transcription error:', error);
@@ -419,6 +499,65 @@ async function startTranscription() {
             resetToInput();
         }
     }
+}
+
+async function runTranscriptionFlow() {
+    // Step 2: Transcribe
+    state.currentStep = 2;
+    updateProgress(2, 'active', `正在使用 ${getProviderName()} 轉錄中...`);
+    updateOverallProgress(30, '正在上傳音訊檔案...');
+
+    await performTranscription();
+
+    // Perform Chinese conversion if enabled
+    if (state.settings.chineseConversion && state.settings.chineseConversion !== 'none') {
+        updateProgress(2, 'active', '正在轉換繁簡字體...');
+        await convertTranscript(state.settings.chineseConversion);
+    }
+
+    updateProgress(2, 'completed', '語音轉文字完成');
+    updateOverallProgress(65, '語音轉文字完成');
+
+    if (!state.versions || state.versions.length === 0) {
+        saveVersion('STT 原始版本');
+    }
+
+    // Step 3: Auto AI refinement
+    state.currentStep = 3;
+    updateProgress(3, 'active', '正在進行 AI 自動微調...');
+    updateOverallProgress(75, '正在自動微調逐字稿...');
+
+    const autoRefined = await autoRefineAfterStt();
+
+    if (state.settings.enableCorrection) {
+        updateProgress(3, 'active', '正在使用 AI 修正...');
+        updateOverallProgress(82, '正在 AI 智能修正...');
+        await performCorrection();
+    }
+
+    if (autoRefined || state.settings.enableCorrection) {
+        updateProgress(3, 'completed', 'AI 微調完成');
+        updateOverallProgress(90, 'AI 微調完成');
+    } else {
+        updateProgress(3, 'completed', '已跳過');
+        updateOverallProgress(90, '');
+    }
+
+    // Step 4: Generate SRT
+    state.currentStep = 4;
+    updateProgress(4, 'active', '正在生成 SRT...');
+    updateOverallProgress(95, '正在生成 SRT 檔案...');
+    await simulateStep(500);
+    updateProgress(4, 'completed', 'SRT 生成完成');
+    updateOverallProgress(100, '完成！');
+
+    // Show editor
+    state.isProcessing = false;
+    setTimeout(() => {
+        elements.progressSection.style.display = 'none';
+        elements.editorSection.style.display = 'block';
+        renderEditor();
+    }, 1000);
 }
 
 function isValidYouTubeUrl(url) {
@@ -510,6 +649,108 @@ function cancelProcessing() {
 
 function simulateStep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function parseSrtTimestamp(timestamp) {
+    const cleaned = timestamp.replace(',', '.');
+    const [hours, minutes, rest] = cleaned.split(':');
+    const [seconds, milliseconds] = rest.split('.');
+    return (Number(hours) * 3600)
+        + (Number(minutes) * 60)
+        + Number(seconds)
+        + (Number(milliseconds) / 1000);
+}
+
+function parseSrtContent(content) {
+    const blocks = content.replace(/\r/g, '').split(/\n{2,}/);
+    const segments = [];
+
+    blocks.forEach((block) => {
+        const lines = block.split('\n').filter(Boolean);
+        if (lines.length < 2) return;
+
+        const timeLine = lines.find(line => line.includes('-->'));
+        if (!timeLine) return;
+
+        const match = timeLine.match(/(\d{2}:\d{2}:\d{2}[,\.]\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,\.]\d{3})/);
+        if (!match) return;
+
+        const textLines = lines.filter(line => line !== timeLine && !/^\d+$/.test(line));
+        const rawText = textLines.join('\n').trim();
+        if (!rawText) return;
+
+        const speakerMatch = rawText.match(/^\s*\[(.+?)\]\s*(.*)$/);
+        const speaker = speakerMatch ? speakerMatch[1] : '講者 A';
+        const text = speakerMatch ? speakerMatch[2] : rawText;
+
+        segments.push({
+            id: segments.length + 1,
+            speaker,
+            start: parseSrtTimestamp(match[1]),
+            end: parseSrtTimestamp(match[2]),
+            text: text.trim()
+        });
+    });
+
+    return segments;
+}
+
+function parseTxtContent(content) {
+    const blocks = content.replace(/\r/g, '').split(/\n{2,}/);
+    const segments = [];
+    let index = 0;
+
+    blocks.forEach((block) => {
+        const lines = block.split('\n').map(line => line.trim()).filter(Boolean);
+        if (lines.length === 0) return;
+        const rawText = lines.join('\n');
+        const speakerMatch = rawText.match(/^\s*\[(.+?)\]\s*(.*)$/);
+        const speaker = speakerMatch ? speakerMatch[1] : '講者 A';
+        const text = speakerMatch ? speakerMatch[2] : rawText;
+        segments.push({
+            id: index + 1,
+            speaker,
+            start: index,
+            end: index + 1,
+            text: text.trim()
+        });
+        index += 1;
+    });
+
+    return segments;
+}
+
+function normalizeTranscriptSegments(segments) {
+    return segments.map((segment, idx) => ({
+        id: idx + 1,
+        speaker: segment.speaker || '講者 A',
+        start: Number.isFinite(segment.start) ? segment.start : idx,
+        end: Number.isFinite(segment.end) ? segment.end : idx + 1,
+        text: segment.text || ''
+    }));
+}
+
+function loadTranscriptIntoEditor(segments, title, versionLabel) {
+    state.transcript = segments;
+    state.speakers = [...new Set(segments.map(s => s.speaker))];
+    state.videoInfo = {
+        videoId: `uploaded_${Date.now()}`,
+        title: title || '上傳逐字稿',
+        duration: 0
+    };
+    state.transcriptionInfo = {
+        model: 'uploaded',
+        language: 'unknown',
+        duration: 0
+    };
+    state.versions = [];
+    state.selectedVersionIndex = null;
+    saveVersion(versionLabel);
+
+    elements.inputSection.style.display = 'none';
+    elements.progressSection.style.display = 'none';
+    elements.editorSection.style.display = 'block';
+    renderEditor();
 }
 
 // ===== Transcription with Real APIs =====
@@ -626,6 +867,23 @@ async function downloadAudio(url) {
     }
 }
 
+async function uploadMediaFile(file) {
+    try {
+        const response = await fetch(`${API_BASE}/api/upload`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': file.type || 'application/octet-stream',
+                'X-Filename': encodeURIComponent(file.name)
+            },
+            body: file
+        });
+        return await response.json();
+    } catch (error) {
+        console.error('Upload failed:', error);
+        return { success: false, error: '上傳失敗，請稍後再試。' };
+    }
+}
+
 async function transcribeWithOpenAI(url) {
     // In production, this would:
     // 1. Download audio from YouTube using yt-dlp (via backend)
@@ -718,13 +976,13 @@ async function performCorrection() {
 
 // ===== Version Management =====
 // Save current state as a version
-function saveVersion(description = '手動修改') {
+function saveVersion(description = '手動修改', changes = description) {
     state.versions = state.versions || [];
     state.versions.push({
         timestamp: Date.now(),
         description: description,
         transcript: JSON.parse(JSON.stringify(state.transcript)),
-        changes: description
+        changes: changes
     });
     renderVersionList();
 }
@@ -782,6 +1040,7 @@ window.viewVersionDetails = function (index) {
     const detailsElement = document.getElementById('changeDetails');
     const actionsElement = document.getElementById('versionActions');
     const restoreBtn = document.getElementById('restoreVersionBtn');
+    state.selectedVersionIndex = index;
 
     if (detailsElement) {
         detailsElement.innerHTML = `
@@ -790,6 +1049,10 @@ window.viewVersionDetails = function (index) {
                 <pre>${version.changes || '無詳細說明'}</pre>
             </div>
         `;
+    }
+
+    if (elements.versionDetailContent) {
+        elements.versionDetailContent.textContent = `版本 #${index + 1}\n${version.description}\n\n${version.changes || '無詳細說明'}`;
     }
 
     if (actionsElement) actionsElement.style.display = 'flex';
@@ -802,6 +1065,65 @@ window.viewVersionDetails = function (index) {
 };
 
 // ===== AI Refinement with Custom Prompt =====
+async function runRefineRequest({ prompt, context, provider, apiKey, enableWebSearch }) {
+    const response = await fetch(`${API_BASE}/api/refine`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            transcript: state.transcript,
+            prompt,
+            context,
+            provider,
+            apiKey,
+            enableWebSearch
+        })
+    });
+
+    const contentType = response.headers.get('content-type') || '';
+    let result;
+    if (contentType.includes('application/json')) {
+        result = await response.json();
+    } else {
+        const text = await response.text();
+        const fallbackMessage = response.status === 413
+            ? '請求內容過大，請縮短逐字稿或提高伺服器 JSON_BODY_LIMIT。'
+            : `伺服器回應非 JSON（HTTP ${response.status}）。`;
+        throw new Error(`${fallbackMessage}\n${text.slice(0, 200)}`);
+    }
+
+    if (!response.ok || !result.success) {
+        throw new Error(result.error);
+    }
+
+    return result;
+}
+
+async function autoRefineAfterStt() {
+    const correctionProvider = elements.correctionProvider.value;
+    const apiKey = correctionProvider === 'gemini'
+        ? elements.geminiCorrectionKey.value || state.settings.geminiCorrectionKey
+        : elements.openaiKey.value || state.settings.openaiKey;
+
+    const prompt = '這是STT轉譯稿 請你找出你看起來不合理的地方，並嘗試推敲並修正';
+
+    try {
+        const result = await runRefineRequest({
+            prompt,
+            context: '',
+            provider: correctionProvider,
+            apiKey,
+            enableWebSearch: false
+        });
+
+        state.transcript = result.transcript;
+        saveVersion('AI 自動微調', result.changes || 'AI 自動微調完成');
+        return true;
+    } catch (error) {
+        console.warn('Auto refine failed:', error);
+        return false;
+    }
+}
+
 async function refineWithAI() {
     const prompt = elements.refinePrompt?.value?.trim();
     const context = elements.refineContext?.value?.trim();
@@ -836,40 +1158,19 @@ async function refineWithAI() {
             saveVersion('原始版本');
         }
 
-        const response = await fetch(`${API_BASE}/api/refine`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                transcript: state.transcript,
-                prompt,
-                context,
-                provider: correctionProvider,
-                apiKey,
-                enableWebSearch
-            })
+        const result = await runRefineRequest({
+            prompt,
+            context,
+            provider: correctionProvider,
+            apiKey,
+            enableWebSearch
         });
-
-        const contentType = response.headers.get('content-type') || '';
-        let result;
-        if (contentType.includes('application/json')) {
-            result = await response.json();
-        } else {
-            const text = await response.text();
-            const fallbackMessage = response.status === 413
-                ? '請求內容過大，請縮短逐字稿或提高伺服器 JSON_BODY_LIMIT。'
-                : `伺服器回應非 JSON（HTTP ${response.status}）。`;
-            throw new Error(`${fallbackMessage}\n${text.slice(0, 200)}`);
-        }
-
-        if (!response.ok || !result.success) {
-            throw new Error(result.error);
-        }
 
         state.transcript = result.transcript;
         renderEditor();
 
         // Save new version
-        saveVersion(`AI 微調: ${prompt.substring(0, 15)}...`);
+        saveVersion(`AI 微調: ${prompt.substring(0, 15)}...`, result.changes || prompt);
 
         // Show success and changes
         let message = 'AI 修正完成！\n\n具體修改：\n' + result.changes;
@@ -1035,6 +1336,11 @@ function resetToInput() {
     elements.progressSection.style.display = 'none';
     elements.editorSection.style.display = 'none';
     elements.inputSection.style.display = 'block';
+    state.transcript = [];
+    state.versions = [];
+    state.selectedVersionIndex = null;
+    if (elements.transcriptUpload) elements.transcriptUpload.value = '';
+    if (elements.mediaUpload) elements.mediaUpload.value = '';
 
     // Reset progress states
     for (let i = 1; i <= 4; i++) {

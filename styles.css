@@ -261,6 +261,45 @@ body {
     min-height: 140px;
 }
 
+.upload-options {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    border-radius: var(--radius-md);
+    border: 1px dashed var(--border-color);
+    background: var(--bg-secondary);
+}
+
+.upload-options h3 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-primary);
+}
+
+.upload-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.upload-card {
+    display: grid;
+    gap: 0.5rem;
+    background: var(--bg-card);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+}
+
+.upload-label {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.upload-card small {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
 .btn {
     display: inline-flex;
     align-items: center;
@@ -927,8 +966,14 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 
+.history-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
 .version-list {
-    max-height: 200px;
+    max-height: 260px;
     overflow-y: auto;
     margin-bottom: 1rem;
     background: rgba(0, 0, 0, 0.2);
@@ -986,6 +1031,8 @@ body {
     font-size: 0.9rem;
     margin-top: 1rem;
     margin-bottom: 1rem;
+    max-height: 40vh;
+    overflow-y: auto;
 }
 
 .version-detail-content pre {
@@ -999,6 +1046,19 @@ body {
     display: flex;
     justify-content: flex-end;
     margin-top: 0.5rem;
+}
+
+.version-modal-content {
+    max-width: 780px;
+    width: min(90vw, 780px);
+}
+
+.version-modal-pre {
+    max-height: 65vh;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    font-family: inherit;
+    color: var(--text-secondary);
 }
 
 /* ===== Checkbox and Select ===== */

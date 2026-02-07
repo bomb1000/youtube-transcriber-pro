@@ -169,6 +169,25 @@
                             </div>
                         </div>
                     </details>
+                    <div class="upload-options">
+                        <h3>或上傳檔案</h3>
+                        <div class="upload-grid">
+                            <div class="upload-card">
+                                <label class="upload-label" for="transcriptUpload">上傳逐字稿（SRT/TXT，可多檔）</label>
+                                <input type="file" id="transcriptUpload" class="input"
+                                    accept=".srt,.txt,text/plain" multiple>
+                                <button class="btn btn-secondary" id="loadTranscriptBtn">載入逐字稿</button>
+                                <small>上傳後直接進入編輯器，跳過下載與語音轉文字。</small>
+                            </div>
+                            <div class="upload-card">
+                                <label class="upload-label" for="mediaUpload">上傳影片或音訊</label>
+                                <input type="file" id="mediaUpload" class="input"
+                                    accept="video/*,audio/*,.mp4,.mkv,.webm,.mp3,.wav,.m4a">
+                                <button class="btn btn-secondary" id="uploadMediaBtn">上傳並開始轉錄</button>
+                                <small>上傳後會直接進入語音轉文字流程。</small>
+                            </div>
+                        </div>
+                    </div>
                     <div class="features-grid">
                         <div class="feature-item">
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -223,7 +242,7 @@
                                 <div class="check-icon">✓</div>
                             </div>
                             <div class="progress-info">
-                                <h3>下載音訊</h3>
+                                <h3>取得音訊</h3>
                                 <p id="step1Status">準備中...</p>
                                 <div class="step-progress-bar" id="step1Bar" style="display: none;">
                                     <div class="step-progress-fill" id="step1Fill"></div>
@@ -341,7 +360,10 @@
                                 <div id="changeHistory" class="change-history" style="display: none;">
                                     <div class="history-header">
                                         <h4>📝 版本歷史</h4>
-                                        <span id="versionCount" class="badge">0</span>
+                                        <div class="history-actions">
+                                            <span id="versionCount" class="badge">0</span>
+                                            <button class="btn btn-sm btn-outline" id="openVersionModal">放大檢視</button>
+                                        </div>
                                     </div>
                                     <div id="versionList" class="version-list"></div>
                                     <div id="versionActions" class="version-actions" style="display: none;">
@@ -382,6 +404,19 @@
                         </button>
                         <button class="btn btn-primary" id="retryBtn">重新嘗試</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Version Detail Modal -->
+        <div class="modal" id="versionDetailModal">
+            <div class="modal-content version-modal-content">
+                <div class="modal-header">
+                    <h2>📝 版本內容</h2>
+                    <button class="close-btn" id="closeVersionDetail">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <pre id="versionDetailContent" class="version-modal-pre"></pre>
                 </div>
             </div>
         </div>
