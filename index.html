@@ -146,9 +146,27 @@
                     <details class="cookies-details">
                         <summary>進階：需要登入時貼上 YouTube cookies（選填）</summary>
                         <div class="cookies-content">
-                            <textarea id="cookiesInput" class="input cookies-textarea" rows="6"
-                                placeholder="貼上從瀏覽器匯出的 cookies.txt 內容（僅用於本次下載）"></textarea>
-                            <small>若影片要求登入或遇到「Sign in to confirm you’re not a bot」，可貼上 cookies.txt 內容協助下載。</small>
+                            <label class="cookies-label" for="cookiesMode">Cookies 輸入方式</label>
+                            <select id="cookiesMode" class="input cookies-select">
+                                <option value="text" selected>貼上 cookies.txt 內容</option>
+                                <option value="base64">貼上 Base64（cookies.txt 轉碼）</option>
+                                <option value="browser">使用伺服器瀏覽器設定檔</option>
+                            </select>
+                            <div class="cookies-field" data-cookies-field="text">
+                                <textarea id="cookiesInput" class="input cookies-textarea" rows="6"
+                                    placeholder="貼上從瀏覽器匯出的 cookies.txt 內容（僅用於本次下載）"></textarea>
+                                <small>若影片要求登入或遇到「Sign in to confirm you’re not a bot」，可貼上 cookies.txt 內容協助下載。</small>
+                            </div>
+                            <div class="cookies-field" data-cookies-field="base64" hidden>
+                                <textarea id="cookiesBase64Input" class="input cookies-textarea" rows="4"
+                                    placeholder="貼上 cookies.txt 的 Base64 字串（僅用於本次下載）"></textarea>
+                                <small>適合在無法保留換行或需要安全傳遞時使用。</small>
+                            </div>
+                            <div class="cookies-field" data-cookies-field="browser" hidden>
+                                <input type="text" id="cookiesFromBrowserInput" class="input"
+                                    placeholder="例如：chrome、firefox、edge（需伺服器可存取瀏覽器設定檔）">
+                                <small>僅適用於本機或有瀏覽器設定檔的伺服器部署。</small>
+                            </div>
                         </div>
                     </details>
                     <div class="features-grid">

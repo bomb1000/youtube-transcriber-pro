@@ -43,7 +43,10 @@ const elements = {
     enableCorrection: document.getElementById('enableCorrection'),
     chineseConversion: document.getElementById('chineseConversion'),
     youtubeUrl: document.getElementById('youtubeUrl'),
+    cookiesMode: document.getElementById('cookiesMode'),
     cookiesInput: document.getElementById('cookiesInput'),
+    cookiesBase64Input: document.getElementById('cookiesBase64Input'),
+    cookiesFromBrowserInput: document.getElementById('cookiesFromBrowserInput'),
     startBtn: document.getElementById('startBtn'),
     inputSection: document.getElementById('inputSection'),
     progressSection: document.getElementById('progressSection'),
@@ -76,6 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadSettings();
     setupEventListeners();
     await checkServerDefaultKeys();
+    updateCookiesMode();
 });
 
 // Check if server has default API keys configured
@@ -167,6 +171,10 @@ function setupEventListeners() {
         if (e.key === 'Enter') startTranscription();
     });
 
+    if (elements.cookiesMode) {
+        elements.cookiesMode.addEventListener('change', updateCookiesMode);
+    }
+
     // Error modal
     elements.closeError.addEventListener('click', closeErrorModal);
     elements.errorModal.addEventListener('click', (e) => {
@@ -219,6 +227,15 @@ function setupEventListeners() {
             e.target.value = 'none'; // Reset dropdown
         });
     }
+}
+
+function updateCookiesMode() {
+    const mode = elements.cookiesMode?.value || 'text';
+    const fields = document.querySelectorAll('[data-cookies-field]');
+    fields.forEach((field) => {
+        const fieldMode = field.getAttribute('data-cookies-field');
+        field.hidden = fieldMode !== mode;
+    });
 }
 
 function closeModal() {
@@ -581,10 +598,19 @@ async function performTranscription(url) {
 
 async function downloadAudio(url) {
     try {
+        const cookiesMode = elements.cookiesMode?.value || 'text';
         const cookiesText = elements.cookiesInput?.value?.trim();
+        const cookiesBase64 = elements.cookiesBase64Input?.value?.trim();
+        const cookiesFromBrowser = elements.cookiesFromBrowserInput?.value?.trim();
         const payload = { url };
-        if (cookiesText) {
+        if (cookiesMode === 'text' && cookiesText) {
             payload.cookiesText = cookiesText;
+        }
+        if (cookiesMode === 'base64' && cookiesBase64) {
+            payload.cookiesBase64 = cookiesBase64;
+        }
+        if (cookiesMode === 'browser' && cookiesFromBrowser) {
+            payload.cookiesFromBrowser = cookiesFromBrowser;
         }
         const response = await fetch(`${API_BASE}/api/download`, {
             method: 'POST',
@@ -823,9 +849,19 @@ async function refineWithAI() {
             })
         });
 
-        const result = await response.json();
+        const contentType = response.headers.get('content-type') || '';
+        let result;
+        if (contentType.includes('application/json')) {
+            result = await response.json();
+        } else {
+            const text = await response.text();
+            const fallbackMessage = response.status === 413
+                ? '請求內容過大，請縮短逐字稿或提高伺服器 JSON_BODY_LIMIT。'
+                : `伺服器回應非 JSON（HTTP ${response.status}）。`;
+            throw new Error(`${fallbackMessage}\n${text.slice(0, 200)}`);
+        }
 
-        if (!result.success) {
+        if (!response.ok || !result.success) {
             throw new Error(result.error);
         }
 

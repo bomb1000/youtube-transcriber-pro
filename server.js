@@ -21,7 +21,15 @@ const DEFAULT_API_KEYS = {
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '20mb' }));
+app.use((err, req, res, next) => {
+    if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+        return res.status(413).json({
+            error: '請求內容過大，請縮短逐字稿或提高 JSON_BODY_LIMIT。'
+        });
+    }
+    return next(err);
+});
 app.use(express.static(path.join(__dirname)));
 
 // Ensure temp directory exists
