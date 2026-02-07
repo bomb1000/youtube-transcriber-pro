@@ -233,8 +233,23 @@ body {
     color: var(--text-primary);
 }
 
+.cookies-label {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cookies-select {
+    margin-bottom: 0.5rem;
+}
+
 .cookies-content {
     margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.cookies-field {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
